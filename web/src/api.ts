@@ -98,6 +98,12 @@ export interface EvalRun {
   model: string | null; passed: number; total: number; seconds: number;
   results: { file: string; passed: boolean; problems: string[]; seconds: number }[];
 }
+export interface ChatTurn {
+  reply: string; model?: string; ungrounded: string[]; false_claim?: boolean;
+  steps: { tool: string; ok: boolean; summary: string; reason: string | null }[];
+  proposals: { action_id: string; summary: string; reason: string | null }[];
+  cards: { card: string; what: string; where: string }[];
+}
 export interface Slice { owner?: string; account_type?: string; broker?: string; account?: string }
 
 export class ApiError extends Error {}
@@ -152,6 +158,8 @@ export const api = {
   },
   commit: (token: string) => post<{ op_id: string }>("/api/import/commit", { token }),
   models: () => call<ModelInfo>("/api/assist/models"),
+  chat: (message: string, history: { role: string; content: string }[]) => post<ChatTurn>("/api/chat", { message, history }),
+  confirmAction: (action_id: string) => post<{ op_id: string }>("/api/chat/confirm", { action_id }),
   chooseModel: (url: string, name: string | null) => post("/api/assist/model", { url, name }),
   evaluate: () => post<EvalRun>("/api/assist/eval", {}),
   readFile: (file: File) => api.upload<Reading>("/api/assist/read", file, {}),

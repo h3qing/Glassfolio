@@ -112,7 +112,7 @@ def check_look_through(lake: Lake, as_of: date, account_id: str | None) -> tuple
 def run_checks(
     lake: Lake, as_of: date, account_id: str | None = None,
     reported_total: float | None = None, reported_cost: float | None = None,
-    actor: str = "user",
+    actor: str = "user", store: bool = True,
 ) -> CheckReport:
     """Run checks for one account (or the whole portfolio) and store the results."""
     results: tuple[CheckResult, ...] = ()
@@ -129,7 +129,8 @@ def run_checks(
     results += check_look_through(lake, as_of, account_id)
     scope = f"account:{account_id}" if account_id else "portfolio"
     report = CheckReport(scope, as_of, results)
-    _store(lake, report, actor)
+    if store:  # the assistant and MCP only look; saving results is the person's action
+        _store(lake, report, actor)
     return report
 
 

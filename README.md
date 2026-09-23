@@ -18,8 +18,9 @@ machine, encrypted.
 > - Attribution of each change to price, your money or fund rebalancing.
 > - TWR and MWR returns.
 > - After-tax values by account type and person, with what-if rates.
+> - A local-model assistant: LLM-assisted import, chat over your data, and an MCP server.
 >
-> The local AI assistant and the Tauri desktop app come later
+> The Tauri desktop app comes later
 > ([roadmap](docs/SPEC.md#12-路线图)).
 
 ## Try it (synthetic data, 30 seconds)
@@ -67,12 +68,20 @@ itself (columns exist, shares × price matches the value, a cash row is present)
 shows you a preview. Data never leaves the machine, because the model client refuses
 any non-loopback address.
 
+5. **Ask:** the ✦ button opens the assistant. It answers questions such as "How
+   much NVDA do I really own?" or "Why did my portfolio change this month?" from
+   your data, with numbers computed by SQL and checked against the tool results.
+   It can prepare answers to open questions, and nothing changes until you click
+   Confirm.
+
 Command-line equivalents:
 
 ```bash
 uv run glassfolio config model --name qwen3.6:27b          # or any model your local server lists
 uv run glassfolio eval-model                               # known-answer test of the configured model
 uv run glassfolio import file positions.csv --account "Schwab Taxable"
+uv run glassfolio eval-assistant                           # ~20 known-answer questions + safety cases
+uv run glassfolio mcp --client-is-local                    # read-only tools for a *local* MCP client
 ```
 
 ### Taxes (planning estimates, not tax advice)

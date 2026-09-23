@@ -20,6 +20,7 @@ from starlette.formparsers import MultiPartParser
 from glassfolio.server.api import MAX_UPLOAD, Api
 from glassfolio.server.security import LocalGuard
 from glassfolio.server.assist_api import AssistApi
+from glassfolio.server.chat_api import ChatApi
 from glassfolio.server.tax_api import TaxApi
 
 STATIC = Path(__file__).resolve().parents[3] / "web" / "dist"
@@ -41,6 +42,7 @@ def create_app(lake: Lake, token: str, allowed_hosts, static_dir: Path = STATIC)
     api = Api(lake)
     tax = TaxApi(lake, api.default_as_of)
     assist = AssistApi(lake, api)
+    chat = ChatApi(lake, api.default_as_of)
     get = [("/api/meta", api.meta), ("/api/exposure", api.exposure),
            ("/api/company/{ticker}", api.company), ("/api/checks", api.checks),
            ("/api/ops", api.ops), ("/api/changes", api.changes), ("/api/history", api.history),
@@ -53,7 +55,8 @@ def create_app(lake: Lake, token: str, allowed_hosts, static_dir: Path = STATIC)
             ("/api/tax/assign", tax.assign), ("/api/tax/treatment", tax.treatment),
             ("/api/people", tax.add_person), ("/api/import/lots", tax.lots),
             ("/api/assist/model", assist.choose), ("/api/assist/eval", assist.evaluate),
-            ("/api/assist/read", assist.read), ("/api/assist/preview", assist.preview)]
+            ("/api/assist/read", assist.read), ("/api/assist/preview", assist.preview),
+            ("/api/chat", chat.chat), ("/api/chat/confirm", chat.confirm)]
     routes = [Route(p, _guarded(h), methods=["GET"]) for p, h in get]
     routes += [Route(p, _guarded(h), methods=["POST"]) for p, h in post]
     if (static_dir / "index.html").exists():

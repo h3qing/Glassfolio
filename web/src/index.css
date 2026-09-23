@@ -307,3 +307,32 @@ tr.clickable:hover + tr td, tr.selected + tr td { border-top-color: transparent;
   .main { padding: 0 10px 32px; }
   .hide-narrow { display: none; }
 }
+
+/* ---- assistant: a floating glass inspector (spec §9: chat panel is glass) ---- */
+.app.with-chat { grid-template-columns: 264px 1fr 380px; }
+.chat {
+  position: sticky; top: 10px; margin: 10px 10px 10px 0; height: calc(100vh - 20px);
+  border-radius: var(--r-window); display: flex; flex-direction: column; overflow: hidden; z-index: 3;
+}
+.chat-head { display: flex; align-items: center; gap: 10px; padding: 14px 14px 10px; }
+.chat-head .icon { color: var(--accent); }
+.chat-body { flex: 1; overflow: auto; padding: 4px 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+.starters { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.starters .btn { text-align: left; }
+.msg { max-width: 92%; }
+.msg.user { align-self: flex-end; }
+.msg.user .msg-text { background: var(--accent); color: var(--accent-ink); border-radius: 18px 18px 6px 18px; padding: 8px 13px; }
+.msg.assistant .msg-text { background: var(--sheet); border-radius: 18px 18px 18px 6px; padding: 9px 13px; box-shadow: 0 1px 2px var(--glass-shade); }
+.msg-text { margin: 0; white-space: pre-wrap; line-height: 1.45; font-variant-numeric: tabular-nums; }
+.msg-note { font-size: 12px; margin: 5px 6px 0; }
+.proposal { background: var(--sheet); border: 1px solid var(--sheet-line); border-radius: 14px; padding: 10px 12px; margin-top: 8px; }
+.proposal p { margin: 0 0 8px; }
+.composer { display: flex; gap: 8px; align-items: flex-end; padding: 10px 12px 12px; }
+.composer textarea {
+  flex: 1; resize: none; border-radius: 18px; border: 1px solid var(--sheet-line); background: var(--sheet);
+  padding: 9px 14px; font-size: 14px; color: var(--ink);
+}
+@media (max-width: 1100px) {
+  .app.with-chat { grid-template-columns: 264px 1fr; }
+  .chat { position: fixed; right: 10px; top: 10px; width: min(380px, calc(100vw - 20px)); margin: 0; }
+}

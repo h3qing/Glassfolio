@@ -269,3 +269,73 @@ def test_failed_lots_import_saves_no_layout(client):
 def test_preview_store_is_bounded(client):
     from glassfolio.server.api import MAX_HELD, keep_recent
     assert len(keep_recent({i: i for i in range(MAX_HELD + 5)})) == MAX_HELD
+
+
+def test_chat_without_a_model_says_so(client):
+    body = client.post("/api/chat", json={"message": "How much NVDA?"}).json()
+    assert "Settings" in body["reply"]
+
+
+def test_chat_proposal_needs_confirmation(client, monkeypatch):
+    import glassfolio.server.chat_api as chat_api
+
+    class Scripted:
+        name = "scripted"
+
+        def __init__(self):
+            self.n = 0
+
+        def chat_json(self, messages, schema):
+            self.n += 1
+            if self.n == 1:
+                return {"action": "call_tool", "tool": "list_questions", "arguments": {}, "reason": "look", "reply": None}
+            if self.n == 2:
+                item = messages[-1]["content"].split('"item_id": "')[1].split('"')[0]
+                return {"action": "call_tool", "tool": "answer_question", "reply": None,
+                        "reason": "they said the $3000 was a deposit",
+                        "arguments": {"item_id": item, "classification": "deposit"}}
+            return {"action": "reply", "tool": None, "arguments": {}, "reason": None, "reply": "Confirm below."}
+
+    model = Scripted()
+    monkeypatch.setattr(chat_api, "configured_model", lambda: model)
+    body = client.post("/api/chat", json={"message": "that was a deposit"}).json()
+    (proposal,) = body["proposals"]
+    assert len(client.get("/api/inbox").json()) == 1
+    assert client.post("/api/chat/confirm", json={"action_id": proposal["action_id"]}).status_code == 200
+    assert client.get("/api/inbox").json() == []
+    (op,) = [o for o in client.get("/api/ops").json() if o["tool"] == "resolve_flow"]
+    assert op["actor"] == "model" and "3000" not in op["description"] and "#" in op["description"]
+    again = client.post("/api/chat/confirm", json={"action_id": proposal["action_id"]})
+    assert again.status_code == 400
+
+
+class ProposeDeposit:
+    """Scripted model: list questions, propose a deposit for the first, reply."""
+    name = "scripted"
+
+    def __init__(self):
+        self.n = 0
+
+    def chat_json(self, messages, schema):
+        self.n += 1
+        if self.n == 1:
+            return {"action": "call_tool", "tool": "list_questions", "arguments": {}, "reason": "look", "reply": None}
+        if self.n == 2:
+            item = messages[-1]["content"].split('"item_id": "')[1].split('"')[0]
+            return {"action": "call_tool", "tool": "answer_question", "reply": None, "reason": "said so",
+                    "arguments": {"item_id": item, "classification": "deposit"}}
+        return {"action": "reply", "tool": None, "arguments": {}, "reason": None, "reply": "Confirm below."}
+
+
+def test_chat_confirm_refuses_questions_already_answered(client, monkeypatch):
+    import glassfolio.server.chat_api as chat_api
+    monkeypatch.setattr(chat_api, "configured_model", ProposeDeposit)
+    (proposal,) = client.post("/api/chat", json={"message": "deposit"}).json()["proposals"]
+    (item,) = client.get("/api/inbox").json()
+    client.post("/api/inbox/answer", json={"item_id": item["item_id"], "classification": "dividend"})
+    r = client.post("/api/chat/confirm", json={"action_id": proposal["action_id"]})
+    assert r.status_code == 400 and "already" in r.json()["error"]
+
+
+def test_chat_rejects_malformed_body(client):
+    assert client.post("/api/chat", json=["x"]).status_code == 400

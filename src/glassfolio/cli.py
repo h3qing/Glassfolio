@@ -299,6 +299,25 @@ def cmd_eval_model(args) -> None:
         record_eval(model.name, s)
 
 
+def cmd_eval_assistant(args) -> None:
+    from glassfolio.assistant.evals import run_assistant_eval
+    from glassfolio.llm import OpenAICompatModel
+    from glassfolio.settings import configured_model, load_settings, record_eval
+
+    model = OpenAICompatModel(args.model, args.url or load_settings().url) if args.model else configured_model()
+    if model is None:
+        sys.exit("no model configured; use --model NAME or `glassfolio config model`")
+    print(f"Asking {model.name} the evaluation questions on a synthetic portfolio (this takes a while)…", flush=True)
+    results = run_assistant_eval(model, tuple(args.only or ()))
+    for r in results:
+        print(f"  {ICONS['pass' if r.passed else 'fail']} {r.id:<20} {r.seconds:>6}s  {'; '.join(r.problems)}", flush=True)
+    passed = sum(r.passed for r in results)
+    print(f"{model.name}: {passed}/{len(results)} questions answered correctly")
+    record_eval(f"assistant:{model.name}", {"passed": passed, "total": len(results),
+                                            "seconds": round(sum(r.seconds for r in results), 1),
+                                            "failed": [r.id for r in results if not r.passed]})
+
+
 def cmd_import_file(args) -> None:
     """Assisted import: the local model (or built-in rules) reads the file; you confirm."""
     from dataclasses import replace
@@ -332,6 +351,20 @@ def cmd_import_file(args) -> None:
         if reading.source != "saved":
             p = replace(p, profile_id=remember_reading(lake, reading, raw, args.broker))
         print(broker_import.commit_statement(lake, p))
+
+
+def cmd_mcp(args) -> None:
+    from glassfolio.assistant.mcp_server import WARNING, serve_stdio
+
+    if not args.client_is_local:
+        sys.exit(WARNING + "\nIf that is the case, start it with --client-is-local.")
+    lake = _lake()
+
+    def today():
+        row = lake.con.execute("SELECT max(as_of_date) FROM import_files WHERE kind = 'statement'").fetchone()
+        return row[0] or date.today()
+
+    serve_stdio(lake, today)
 
 
 def cmd_serve(args) -> None:
@@ -418,6 +451,10 @@ def _parser() -> argparse.ArgumentParser:
         (("--end",), {"type": day, "default": date.today()}))
     add("eval-model", cmd_eval_model, (("--model",), {}), (("--url",), {}),
         (("--heuristic",), {"action": "store_true", "help": "evaluate the built-in rules instead"}))
+    add("eval-assistant", cmd_eval_assistant, (("--model",), {}), (("--url",), {}),
+        (("--only",), {"nargs": "*", "help": "case ids to run"}))
+    add("mcp", cmd_mcp, (("--client-is-local",), {"action": "store_true",
+                                                    "help": "confirm the MCP client uses a model on this Mac"}))
     add("serve", cmd_serve, (("--port",), {"type": int, "default": 8765}),
         (("--no-browser",), {"action": "store_true"}))
     return p
@@ -429,3 +466,7 @@ def main(argv: list[str] | None = None) -> None:
         args.fn(args)
     except (ValueError, OSError) as exc:
         sys.exit(f"error: {printable(str(exc))}")
+
+
+if __name__ == "__main__":
+    main()

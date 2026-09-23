@@ -16,6 +16,7 @@ Flows are dated to the statement date, so returns are approximate.
 """
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from functools import cache
@@ -215,8 +216,18 @@ def _answer_rows(item: InboxItem, classification: str, paired: str | None, now) 
             date.fromisoformat(p["end"]), classification, paired, now)
 
 
+_NUMBER_WORDS = re.compile(
+    r"\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|"
+    r"sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|"
+    r"thousand|million|billion|grand|k)\b", re.I)
+
+
+def _mask_amounts(text: str) -> str:
+    return _NUMBER_WORDS.sub("#", re.sub(r"[0-9]", "#", text))
+
+
 def resolve_flow(lake: Lake, item_id: str, classification: str, paired_item_id: str | None = None,
-                 remember: bool = False, actor: str = "user") -> str:
+                 remember: bool = False, actor: str = "user", reason: str | None = None) -> str:
     """Answer a question. Flow questions can be re-answered later to change the answer."""
     if classification not in CLASSIFICATIONS:
         raise ValueError(f"classification must be one of {CLASSIFICATIONS}")
@@ -261,4 +272,6 @@ def resolve_flow(lake: Lake, item_id: str, classification: str, paired_item_id: 
         return None, RowCounts(inserted=n)
 
     params = {"item_id": item_id, "classification": classification, "remember": remember}
-    return run_write(lake, OpMeta(actor, "resolve_flow", params, "answer a question"), work)[1]
+    # A model's reason is kept (spec §6) but never with amounts: digits and number words are masked.
+    description = "answer a question" + (f": {_mask_amounts(reason)[:160]}" if reason else "")
+    return run_write(lake, OpMeta(actor, "resolve_flow", params, description), work)[1]

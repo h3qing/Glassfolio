@@ -10,6 +10,7 @@ import ActivityView from "./views/Activity";
 import ChangesView from "./views/Changes";
 import InboxView from "./views/Inbox";
 import SettingsView from "./views/Settings";
+import ChatPanel from "./views/Chat";
 import TaxesView from "./views/Taxes";
 import { Segmented } from "./Segmented";
 
@@ -58,6 +59,7 @@ export default function App() {
   const [asOf, setAsOf] = useState("");
   const [privacy, setPrivacy] = useState(false);
   const [basis, setBasis] = useState<Basis>("pre");
+  const [chatOpen, setChatOpen] = useState(false);
 
   const [questions, setQuestions] = useState(0);
   const reload = useCallback(() => {
@@ -74,7 +76,7 @@ export default function App() {
     return <main className="sheet" style={{ margin: 40 }}><p className="error" style={{ margin: 6 }}>{error}</p></main>;
   }
   return (
-    <div className={`app${privacy ? " private" : ""}`}>
+    <div className={`app${privacy ? " private" : ""}${chatOpen ? " with-chat" : ""}`}>
       <aside className="sidebar glass">
         <div className="brand"><Logo /> Glassfolio</div>
         <nav className="nav" aria-label="Views">
@@ -116,6 +118,8 @@ export default function App() {
               <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} aria-label="As of date" />
             </label>
             <span className="divider" aria-hidden />
+            <button className="icon-btn" aria-pressed={chatOpen} onClick={() => setChatOpen((o) => !o)}
+              aria-label="Ask the assistant" title="Ask the assistant"><Icon name="sparkle" /></button>
             <button className="icon-btn" aria-pressed={privacy} onClick={() => setPrivacy((p) => !p)}
               aria-label={privacy ? "Show amounts" : "Hide amounts"} title={privacy ? "Show amounts" : "Hide amounts"}>
               <Icon name={privacy ? "eyeOff" : "eye"} />
@@ -132,6 +136,7 @@ export default function App() {
         {meta && view === "checks" && <ChecksView meta={meta} asOf={asOf} />}
         {view === "activity" && <ActivityView />}
       </div>
+      {chatOpen && <ChatPanel onClose={() => setChatOpen(false)} onChanged={reload} onImport={() => setView("import")} />}
     </div>
   );
 }

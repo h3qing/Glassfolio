@@ -11,6 +11,7 @@ requires-python = ">=3.12"
 dependencies = [
     "duckdb>=1.5.5",
     "keyring>=25.7.0",
+    "mcp>=2.2.0",
     "python-multipart>=0.0.32",
     "starlette>=1.7.0",
     "uvicorn>=0.53.0",

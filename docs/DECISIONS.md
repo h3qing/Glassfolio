@@ -218,5 +218,63 @@ read by a local model, with fixed code checking whatever it proposes.
 - **Parser tolerance** for real exports: a blank line ends the holdings table,
   single-cell footer lines are ignored, and cost can come from cost per share ×
   shares.
-- **Not yet in phase 5:** the chat assistant, the MCP tool server, and model-driven
-  answers to inbox questions.
+
+## Phase 5 (second part): chat assistant and MCP
+
+- **A JSON action protocol, not native tool calling.** Runtimes and models differ in
+  tool-calling support, so each step the model returns `{"action": "call_tool" |
+  "reply", ...}` through the same negotiated structured output as the importer. Any
+  model that can produce JSON works. Up to 6 steps per turn.
+- **Hardening from review:**
+  - The assistant's run_checks only looks and saves nothing; MCP likewise.
+  - The query sandbox runs in a child process that is killed at 5 s, because
+    DuckDB can't interrupt every operation or bound every allocation. It also has
+    a 512 MB memory limit and 1 thread.
+  - Numbers the model itself supplied (SQL constants, echoed arguments) don't
+    count as grounding, unless the person said them.
+  - Only the person's messages count as a source; earlier assistant replies don't.
+  - Tolerance is half a unit of the last digit shown, the sign must match, ×100
+    applies only to percentages, and years are skipped only as bare numbers.
+    Arithmetic tricks (`SELECT 48000 + 213.55`) and spelled-out numbers are
+    residual gaps.
+  - Proposals show the amount and the paired account, expire after 30 minutes,
+    and are refused if the question was answered meanwhile. `remember` must be
+    literally true.
+  - Filters are matched to real values (friendly spellings accepted) or refused
+    with the valid choices, instead of silently returning zeros. This fixed 2
+    evaluation failures.
+  - The reason text in ops_log has digits and number words masked.
+- **Tools** (`assistant/tools.py`):
+  - portfolio_summary, get_exposure, get_changes, list_accounts, list_questions,
+    run_checks, tax_summary: typed, with numbers computed by SQL.
+  - query_readonly: free SQL, sandboxed.
+  - answer_question: write, proposal only.
+  - request_user_file: shows a card.
+- **The query_readonly sandbox:** a fresh in-memory DuckDB with external access
+  off and configuration locked, holding copies of allow-listed tables. There are
+  no keys, no raw imported files and no ops_log; `getenv` doesn't exist, and file
+  access and ATTACH/INSTALL are refused.
+  - The SQL must also parse as one SELECT with no table functions.
+  - Results are capped at 200 rows, and queries time out after 5 seconds.
+- **Writes are two-step.** answer_question returns a proposal; only the Confirm
+  button executes it. It is logged with actor `model` and the model's stated
+  reason, with digits masked so no amounts reach ops_log.
+- **Grounding guard.** Every number in a reply must appear in this turn's tool
+  results, the person's message or recent history. Dates, days and years are
+  ignored, and percentages may appear ×100. A reply with other numbers is sent
+  back once, then flagged to the person.
+- **False-claim guard.** Found by testing with qwen3.6:27b, which once replied
+  "I've noted that" without proposing anything. A reply that claims a change
+  when nothing was proposed is sent back once, then flagged.
+- **Tool results are labelled as untrusted data** in the conversation. The
+  evaluation plants instructions inside a security name.
+- **Evaluation** (`evals/assistant/`): 22 known-answer and safety cases on a
+  throwaway lake with the synthetic portfolio, run with
+  `glassfolio eval-assistant [--model]`. qwen3.6:27b on the owner's Mac: 18/22 at
+  first. Two of those failures were eval bugs (curly apostrophe; the test account
+  not counted), and two were silent empty filters, now refused. After the fixes,
+  22/22 (see the run log in the commit message).
+- **MCP server** (`glassfolio mcp --client-is-local`): stdio, read tools only.
+  - It refuses to start without the flag, because an MCP client may be backed
+    by a cloud model and the server can't tell (spec §7 red line).
+  - It needs the lake to itself: stop `serve` first (DuckDB file lock).

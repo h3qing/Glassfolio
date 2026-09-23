@@ -32,6 +32,8 @@ class ChatModel(Protocol):
 
     def complete_json(self, system: str, user: str, schema: dict) -> dict: ...
 
+    def chat_json(self, messages: list[dict], schema: dict) -> dict: ...
+
 
 def require_loopback(url: str) -> str:
     parts = urlsplit(url)
@@ -99,12 +101,12 @@ class OpenAICompatModel:
     base_url: str = DEFAULT_URL
     mode: str = "json_schema"   # best structured-output mode known to work; negotiated down on rejection
 
-    def _body(self, system: str, user: str, schema: dict, mode: str, extras: bool) -> dict:
+    def _body(self, messages: list[dict], schema: dict, mode: str, extras: bool) -> dict:
         schema_hint = "" if mode == "json_schema" else (
             "\n\nReply with only a JSON object matching this JSON Schema:\n" + json.dumps(schema))
+        first, rest = messages[0], messages[1:]
         body = {"model": self.name, "temperature": 0,
-                "messages": [{"role": "system", "content": system + schema_hint},
-                             {"role": "user", "content": user}]}
+                "messages": [{**first, "content": first["content"] + schema_hint}, *rest]}
         if mode == "json_schema":
             body["response_format"] = {"type": "json_schema",
                                        "json_schema": {"name": "answer", "schema": schema, "strict": True}}
@@ -115,13 +117,17 @@ class OpenAICompatModel:
         return body
 
     def complete_json(self, system: str, user: str, schema: dict) -> dict:
+        return self.chat_json([{"role": "system", "content": system}, {"role": "user", "content": user}], schema)
+
+    def chat_json(self, messages: list[dict], schema: dict) -> dict:
+        """messages[0] must be the system message."""
         url = require_loopback(self.base_url) + "/chat/completions"
         modes = MODES[MODES.index(self.mode):]
         last: ModelError | None = None
         for mode in modes:
             for extras in (True, False):
                 try:
-                    reply = _http(url, self._body(system, user, schema, mode, extras))
+                    reply = _http(url, self._body(messages, schema, mode, extras))
                     content = reply["choices"][0]["message"].get("content") or ""
                     return json.loads(content) if mode == "json_schema" else extract_json(content)
                 except _Rejected as exc:

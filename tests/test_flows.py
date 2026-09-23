@@ -180,3 +180,12 @@ def test_transfer_pairs_two_accounts(golden, tmp_path):
     assert {f.type for f in flows} == {"transfer"} and len(flows) == 2
     assert sum(f.amount for f in flows) == pytest.approx(0)
     assert {f.paired_flow_id for f in flows} == {f.flow_id for f in flows}
+
+
+def test_reason_in_audit_log_has_no_amounts(golden):
+    from glassfolio.lake import list_ops
+    lake, _ = golden
+    (item,) = list_inbox(lake)
+    resolve_flow(lake, item.item_id, "deposit", actor="model", reason="they said the five thousand dollar ($5,000) was pay")
+    (op,) = [o for o in list_ops(lake) if o.tool == "resolve_flow"]
+    assert "5" not in op.description and "five" not in op.description and "thousand" not in op.description
