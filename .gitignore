@@ -17,6 +17,7 @@ data/
 *.csv
 !tests/golden/*.csv
 !evals/files/*.csv
+!evals/assistant/*.csv
 *.pdf
 *.xlsx
 .env
