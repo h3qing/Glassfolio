@@ -1,4 +1,9 @@
--- Look-through exposure at date $as_of (spec §4.1).
+-- Look-through exposure (spec §4.1). Four dates, normally all equal:
+--   $pos_date     which statements (latest on or before)
+--   $basket_date  which fund holdings versions
+--   $price_date   which closes
+--   $split_date   units: everything is split-adjusted to this date
+-- Attribution (§4.2) varies them independently.
 --   b(e,s,t) = S(e,s,t) / N(e,t)                share basket per ETF share
 --   x(s,t)   = direct(s,t) + Σ_e q(e,t) b(e,s,t)
 -- Weight fallback when S or N is missing: b = weight × p(e) / p(s) (approximate).
@@ -18,14 +23,14 @@ sec AS (
 ),
 splits AS (
     SELECT DISTINCT security_id, date, ratio_or_amount::DOUBLE AS ratio
-    FROM corporate_actions WHERE type = 'split' AND date <= $as_of
+    FROM corporate_actions WHERE type = 'split' AND date <= $split_date
 ),
 latest_import AS (
     SELECT account_id, file_hash FROM (
         SELECT account_id, file_hash, row_number() OVER (
             PARTITION BY account_id ORDER BY as_of_date DESC, imported_at DESC) AS rn
         FROM import_files
-        WHERE kind = 'statement' AND status = 'imported' AND as_of_date <= $as_of)
+        WHERE kind = 'statement' AND status = 'imported' AND as_of_date <= $pos_date)
     WHERE rn = 1
 ),
 pos AS (
@@ -40,7 +45,7 @@ px_ranked AS (
     SELECT security_id, date, close::DOUBLE AS close, row_number() OVER (
         PARTITION BY security_id ORDER BY date DESC,
             CASE source WHEN 'broker_export' THEN 3 WHEN 'etf_file' THEN 2 ELSE 1 END) AS rn
-    FROM prices WHERE date <= $as_of AND close IS NOT NULL
+    FROM prices WHERE date <= $price_date AND close IS NOT NULL
 ),
 px AS (
     SELECT r.security_id, r.close / coalesce((SELECT product(s.ratio) FROM splits s
@@ -53,7 +58,7 @@ px AS (
 holdings_version AS (
     SELECT etf_id, as_of_date, fetched_at FROM (
         SELECT DISTINCT etf_id, as_of_date, fetched_at FROM etf_holdings
-        WHERE as_of_date <= $as_of)
+        WHERE as_of_date <= $basket_date)
     QUALIFY row_number() OVER (PARTITION BY etf_id ORDER BY as_of_date DESC, fetched_at DESC) = 1
 ),
 basket AS (

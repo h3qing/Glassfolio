@@ -14,6 +14,7 @@ from glassfolio.registry import add_account, add_owner, add_profile, set_proxy
 GOLDEN = Path(__file__).parent / "golden"
 TEST_KEY = "0" * 63 + "1"  # test-only key; real keys come from the Keychain
 D = date(2026, 9, 18)
+T1 = date(2026, 9, 30)
 
 
 @pytest.fixture
@@ -43,6 +44,7 @@ def build_golden(lake):
     load_etf(lake, "etf_gfof_ishares.csv", "GFOF", fmt="ishares")
     load_statement(lake, "broker_alice_taxable.csv", "Alice Taxable", profile, D)
     load_statement(lake, "broker_alice_roth.csv", "Alice Roth", profile, date(2026, 9, 12))
+    load_statement(lake, "broker_alice_taxable_2026-09-30.csv", "Alice Taxable", profile, T1)
     import_prices(lake, GOLDEN / "prices.csv")
     import_corporate_actions(lake, GOLDEN / "corporate_actions.csv")
     set_proxy(lake, "GCIT", "VTI")

@@ -9,6 +9,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+from glassfolio.flows import infer_after_statement
 from glassfolio.lake import Lake, OpMeta, RowCounts, run_write, utc_now
 from glassfolio.parsing import cell, clean, file_hash, parse_number, read_rows, read_source
 from glassfolio.registry import find_account, load_profile
@@ -155,7 +156,11 @@ def commit_statement(lake: Lake, preview: StatementPreview, actor: str = "user")
         )
         n = len(preview.matches)
         n_prices = sum(1 for m in preview.matches if not m.row.is_cash)
-        return None, RowCounts(inserted=new_secs + n + n_prices + 1)
+        nickname = con.execute("SELECT nickname FROM accounts WHERE account_id = ? "
+                               "ORDER BY created_at DESC LIMIT 1", [preview.account_id]).fetchone()[0]
+        flows = infer_after_statement(con, preview.account_id, nickname, preview.file_hash,
+                                      preview.as_of)
+        return None, RowCounts(inserted=new_secs + n + n_prices + 1) + flows
 
     params = {"file_hash": preview.file_hash, "account_id": preview.account_id,
               "profile_id": preview.profile_id, "as_of": preview.as_of.isoformat()}

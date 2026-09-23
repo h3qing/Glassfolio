@@ -22,7 +22,8 @@ CATALOG = "lake"
 BUSINESS_TABLES = (
     "owners", "accounts", "securities", "positions", "prices",
     "corporate_actions", "etf_holdings", "import_profiles", "import_files",
-    "recon_results",
+    "recon_results", "cash_flows", "flow_rules", "inbox_items", "portfolio_daily",
+    "fetch_log",
 )
 ACTORS = ("user", "scheduler", "model")
 

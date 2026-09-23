@@ -28,8 +28,28 @@ class ExposureLine:
     approx: bool
 
 
-def exposure_lines(lake: Lake, as_of: date) -> tuple[ExposureLine, ...]:
-    rows = lake.con.execute(exposure_sql(), {"as_of": as_of}).fetchall()
+@dataclass(frozen=True)
+class Dates:
+    """The four inputs of a look-through; `Dates.at(d)` for a normal valuation."""
+    pos_date: date
+    basket_date: date
+    price_date: date
+    split_date: date
+
+    @staticmethod
+    def at(d: date) -> "Dates":
+        return Dates(d, d, d, d)
+
+    def params(self) -> dict:
+        return vars(self).copy()
+
+
+def _dates(as_of: "date | Dates") -> Dates:
+    return as_of if isinstance(as_of, Dates) else Dates.at(as_of)
+
+
+def exposure_lines(lake: Lake, as_of: "date | Dates") -> tuple[ExposureLine, ...]:
+    rows = lake.con.execute(exposure_sql(), _dates(as_of).params()).fetchall()
     return tuple(ExposureLine(*r) for r in rows)
 
 
@@ -92,7 +112,7 @@ GROUP_BYS = tuple(_GROUP_EXPR)
 
 
 def company_exposure(
-    lake: Lake, as_of: date, ticker: str | None = None, group_by: str | None = None,
+    lake: Lake, as_of: "date | Dates", ticker: str | None = None, group_by: str | None = None,
     slice_: Slice = Slice(),
 ) -> tuple[CompanyExposure, ...]:
     """Per-company exposure, split into held directly vs held through funds."""
@@ -115,7 +135,7 @@ def company_exposure(
     GROUP BY ALL
     ORDER BY direct + via DESC, 1, 3
     """
-    params = {"as_of": as_of, **slice_params, **({"ticker": ticker} if ticker else {})}
+    params = {**_dates(as_of).params(), **slice_params, **({"ticker": ticker} if ticker else {})}
     return tuple(CompanyExposure(*r) for r in lake.con.execute(sql, params).fetchall())
 
 

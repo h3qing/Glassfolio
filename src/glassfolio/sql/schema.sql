@@ -48,3 +48,27 @@ CREATE TABLE IF NOT EXISTS ops_log (
     description VARCHAR, rows_inserted BIGINT, rows_updated BIGINT,
     rows_deleted BIGINT, snapshot_before BIGINT
 );
+-- Phase 3
+CREATE TABLE IF NOT EXISTS cash_flows (
+    flow_id VARCHAR, account_id VARCHAR, date DATE, amount DECIMAL(24, 8),
+    type VARCHAR, source VARCHAR, rule_id VARCHAR, paired_flow_id VARCHAR,
+    created_at TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS flow_rules (
+    rule_id VARCHAR, account_id VARCHAR, pattern VARCHAR, classification VARCHAR,
+    created_at TIMESTAMP
+);
+-- Status changes append a new row with the same item_id; the latest wins.
+CREATE TABLE IF NOT EXISTS inbox_items (
+    item_id VARCHAR, type VARCHAR, payload JSON, status VARCHAR,
+    created_at TIMESTAMP, resolved_at TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS portfolio_daily (
+    date DATE, account_id VARCHAR, owner_id VARCHAR, security_id VARCHAR,
+    kind VARCHAR, direct_value DOUBLE, via_fund_value DOUBLE, confidence_status VARCHAR,
+    computed_at TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS fetch_log (
+    fetch_id VARCHAR, source VARCHAR, target VARCHAR, started_at TIMESTAMP,
+    status VARCHAR, error VARCHAR, raw_file_hash VARCHAR
+);

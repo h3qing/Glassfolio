@@ -64,7 +64,7 @@ def test_uses_close_not_export_price_for_analysis(golden):
 
 def test_holdings_version_follows_as_of_date(golden):
     lake, _ = golden
-    later = company_exposure(lake, date(2026, 9, 30), "NVDA", "fund")
+    later = company_exposure(lake, date(2026, 9, 26), "NVDA", "fund")
     qqq = {r.group: r for r in later}["QQQ"]
     assert qqq.total == pytest.approx(100 * 0.3 * 999)  # 09-25 basket, 09-25 price
 

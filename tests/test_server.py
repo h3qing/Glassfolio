@@ -65,7 +65,7 @@ def test_company_drilldown(client):
 
 def test_meta_lists_accounts_and_default_date(client):
     meta = client.get("/api/meta").json()
-    assert meta["default_as_of"] == "2026-09-18"
+    assert meta["default_as_of"] == "2026-09-30"  # latest statement
     assert {a["nickname"] for a in meta["accounts"]} == {"Alice Taxable", "Alice Roth"}
 
 
