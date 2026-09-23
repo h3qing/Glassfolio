@@ -26,6 +26,7 @@ class Attribution:
     flow_effect: float
     rebalance_effect: float
     approx: bool
+    missing_price: bool = False  # some value is missing: effects are incomplete
 
     @property
     def change(self) -> float:
@@ -49,5 +50,6 @@ def company_attribution(
     for key in keys:
         v0, va, vm, v1 = (value(run, key) for run in runs)
         approx = any(run[key].approx for run in runs if key in run)
-        rows.append(Attribution(key[0], key[1], v0, v1, va - v0, vm - va, v1 - vm, approx))
+        missing = any(run[key].missing_price for run in runs if key in run)
+        rows.append(Attribution(key[0], key[1], v0, v1, va - v0, vm - va, v1 - vm, approx, missing))
     return tuple(sorted(rows, key=lambda r: -abs(r.change)))

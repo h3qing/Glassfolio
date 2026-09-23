@@ -148,6 +148,97 @@ def cmd_restore(args) -> None:
         print(restore(_lake(), args.op_id))
 
 
+def cmd_config_tiingo(args) -> None:
+    import getpass
+
+    from glassfolio.keys import store_tiingo_token
+
+    store_tiingo_token(getpass.getpass("Tiingo API token (input hidden): "))
+    print("Saved to the macOS Keychain.")
+
+
+def _fetch(lake: Lake, start: date, end: date, budget: int) -> None:
+    from glassfolio.keys import load_tiingo_token
+    from glassfolio.price_fetch import refresh_prices
+
+    token = load_tiingo_token()
+    if not token:
+        print("No Tiingo token; skipping price fetch (run `glassfolio config tiingo`).")
+        return
+    r = refresh_prices(lake, start, end, token, budget, actor="user")
+    print(f"Prices: {len(r.fetched)} fetched, {len(r.failed)} failed"
+          + (f", {len(r.flagged)} flagged for review" if r.flagged else "")
+          + (f", rate limited ({len(r.skipped)} left for next run)" if r.rate_limited else ""))
+
+
+def cmd_prices_fetch(args) -> None:
+    _fetch(_lake(), args.start, args.end, args.budget)
+
+
+def cmd_daily(args) -> None:
+    from datetime import timedelta
+
+    from glassfolio.snapshots import snapshot_day
+
+    lake = _lake()
+    today = date.today()
+    _fetch(lake, today - timedelta(days=7), today, args.budget)
+    latest = lake.con.execute("SELECT max(date) FROM prices WHERE source = 'tiingo'").fetchone()[0]
+    day = latest or today
+    snapshot_day(lake, day, rebuild=True, actor="scheduler")
+    report = recon.run_checks(lake, day, actor="scheduler")
+    print(f"Snapshot for {day}; checks: {ICONS[report.status]} {report.status}")
+
+
+def cmd_snapshot(args) -> None:
+    from glassfolio.snapshots import snapshot_day
+
+    op = snapshot_day(_lake(), args.date, rebuild=args.rebuild)
+    print(op or f"{args.date} already has a snapshot (use --rebuild to recompute)")
+
+
+def cmd_inbox(args) -> None:
+    from glassfolio.flows import list_inbox
+
+    for item in list_inbox(_lake()):
+        p = item.payload
+        if item.type == "unexplained_flow":
+            pairs = "; ".join(f"pair with {c['item_id']} ({printable(c['account'])})"
+                              for c in item.pair_candidates)
+            print(f"{item.item_id}  {printable(p['account'])}: {_money(p['amount']).strip()} "
+                  f"unexplained between {p['start']} and {p['end']}  {pairs}")
+        else:
+            print(f"{item.item_id}  {item.type}: {printable(json.dumps(p))}")
+
+
+def cmd_inbox_answer(args) -> None:
+    from glassfolio.flows import resolve_flow
+
+    print(resolve_flow(_lake(), args.item_id, args.classification, args.pair, args.remember))
+
+
+def cmd_changes(args) -> None:
+    from glassfolio.attribution import company_attribution
+
+    rows = company_attribution(_lake(), args.start, args.end)
+    print(f"{'ticker':<8} {'start':>14} {'price':>14} {'your money':>14} {'rebalancing':>14} {'end':>14}")
+    for r in rows:
+        print(f"{printable(r.ticker) or '?':<8} {_money(r.start_value)} {_money(r.price_effect)} "
+              f"{_money(r.flow_effect)} {_money(r.rebalance_effect)} {_money(r.end_value)}"
+              + (" ≈" if r.approx else ""))
+
+
+def cmd_returns(args) -> None:
+    from glassfolio.performance import returns
+
+    r = returns(_lake(), args.start, args.end)
+    pct = lambda x: "—" if x is None else f"{x:.2%}"  # noqa: E731
+    print(f"{r.start} → {r.end}: TWR {pct(r.twr)}, MWR (annualised) {pct(r.mwr)}, "
+          f"net flows {_money(r.net_flows).strip()}")
+    if r.open_questions:
+        print(f"! {r.open_questions} unexplained cash flows are unanswered; see `glassfolio inbox`")
+
+
 def cmd_serve(args) -> None:
     from glassfolio.server.app import serve
 
@@ -196,6 +287,28 @@ def _parser() -> argparse.ArgumentParser:
         (("--reported-cost",), {"type": float}))
     add("ops", cmd_ops, (("--limit",), {"type": int, "default": 30}))
     add("restore", cmd_restore, (("op_id",), {}), yes)
+    config = sub.add_parser("config").add_subparsers(required=True)
+    add("tiingo", cmd_config_tiingo, parent=config)
+    prices = sub.add_parser("prices").add_subparsers(required=True)
+    add("fetch", cmd_prices_fetch, (("--start",), {"type": day, "required": True}),
+        (("--end",), {"type": day, "default": date.today()}),
+        (("--budget",), {"type": int, "default": 45}), parent=prices)
+    add("snapshot", cmd_snapshot, (("--date",), {"type": day, "default": date.today()}),
+        (("--rebuild",), {"action": "store_true"}))
+    add("daily", cmd_daily, (("--budget",), {"type": int, "default": 45}))
+    inbox = sub.add_parser("inbox")
+    inbox.set_defaults(fn=cmd_inbox)
+    inbox_sub = inbox.add_subparsers()
+    add("answer", cmd_inbox_answer, (("item_id",), {}),
+        (("classification",), {"choices": ("deposit", "withdrawal", "transfer", "dividend",
+                                           "not_a_flow")}),
+        (("--pair",), {"help": "the other account's question, for a transfer"}),
+        (("--remember",), {"action": "store_true", "help": "apply to this account from now on"}),
+        parent=inbox_sub)
+    add("changes", cmd_changes, (("--start",), {"type": day, "required": True}),
+        (("--end",), {"type": day, "default": date.today()}))
+    add("returns", cmd_returns, (("--start",), {"type": day, "required": True}),
+        (("--end",), {"type": day, "default": date.today()}))
     add("serve", cmd_serve, (("--port",), {"type": int, "default": 8765}),
         (("--no-browser",), {"action": "store_true"}))
     return p

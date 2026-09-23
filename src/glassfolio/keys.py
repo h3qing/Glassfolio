@@ -37,3 +37,15 @@ def create_key() -> str:
     key = secrets.token_hex(32)
     keyring.set_password(SERVICE, ACCOUNT, key)
     return key
+
+
+TIINGO_ACCOUNT = "tiingo-token"
+TIINGO_ENV = "GLASSFOLIO_TIINGO_TOKEN"
+
+
+def load_tiingo_token() -> str | None:
+    return os.environ.get(TIINGO_ENV) or keyring.get_password(SERVICE, TIINGO_ACCOUNT)
+
+
+def store_tiingo_token(token: str) -> None:
+    keyring.set_password(SERVICE, TIINGO_ACCOUNT, token.strip())

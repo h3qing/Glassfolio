@@ -49,10 +49,11 @@ CREATE TABLE IF NOT EXISTS ops_log (
     rows_deleted BIGINT, snapshot_before BIGINT
 );
 -- Phase 3
-CREATE TABLE IF NOT EXISTS cash_flows (
-    flow_id VARCHAR, account_id VARCHAR, date DATE, amount DECIMAL(24, 8),
-    type VARCHAR, source VARCHAR, rule_id VARCHAR, paired_flow_id VARCHAR,
-    created_at TIMESTAMP
+-- Cash flows themselves are derived from statements on every read (flows.py);
+-- only the user's answers are stored, keyed by account and statement period.
+CREATE TABLE IF NOT EXISTS flow_answers (
+    item_id VARCHAR, account_id VARCHAR, start_date DATE, end_date DATE,
+    classification VARCHAR, paired_item_id VARCHAR, created_at TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS flow_rules (
     rule_id VARCHAR, account_id VARCHAR, pattern VARCHAR, classification VARCHAR,

@@ -37,12 +37,29 @@ export interface Op {
   op_id: string; ts: string; actor: string; tool: string; description: string;
   rows_inserted: number; rows_deleted: number; snapshot_before: number; snapshot_after: number | null;
 }
+export interface Returns {
+  start: string; end: string; start_value: number; end_value: number; net_flows: number;
+  twr: number | null; mwr: number | null; mwr_period: number | null; open_questions: number;
+  missing_prices: number;
+}
+export interface Attribution {
+  ticker: string | null; name: string | null; start_value: number; end_value: number;
+  price_effect: number; flow_effect: number; rebalance_effect: number; change: number; approx: boolean;
+  missing_price: boolean;
+}
+export interface Changes { start: string; end: string; returns: Returns; companies: Attribution[] }
+export interface InboxItem {
+  item_id: string; type: string; status: string; created_at: string;
+  payload: Record<string, any>;
+  pair_candidates: { item_id: string; account: string; amount: number }[];
+}
 export interface Slice { owner?: string; account_type?: string; broker?: string; account?: string }
 
 export class ApiError extends Error {}
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, { credentials: "same-origin", ...init });
+  const headers = { "x-glassfolio": "1", ...(init?.headers ?? {}) };
+  const res = await fetch(path, { credentials: "same-origin", ...init, headers });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(body.error ?? `request failed (${res.status})`);
   return body as T;
@@ -66,6 +83,11 @@ export const api = {
   runChecks: (body: { as_of: string; account?: string; reported_total?: string; reported_cost?: string }) =>
     post<CheckReport>("/api/checks", body),
   ops: () => call<Op[]>("/api/ops"),
+  changes: (start: string, end: string, s: Slice) => call<Changes>(`/api/changes?${query({ start, end, ...s })}`),
+  history: (s: Slice) => call<{ date: string; value: number }[]>(`/api/history?${query({ ...s })}`),
+  inbox: () => call<InboxItem[]>("/api/inbox"),
+  answer: (body: { item_id: string; classification: string; pair?: string; remember?: boolean }) =>
+    post<{ op_id: string }>("/api/inbox/answer", body),
   addOwner: (nickname: string) => post("/api/owners", { nickname }),
   addAccount: (a: { nickname: string; owner: string; broker: string; account_type: string }) =>
     post("/api/accounts", a),

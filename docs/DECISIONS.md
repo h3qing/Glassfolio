@@ -58,3 +58,76 @@ Choices made while building, including where the code departs from or refines
   fetching of issuer files (`refresh_etf_holdings`), `inbox_items`, and the MCP
   server. The importers are already split into preview and commit, the shape those
   tools need.
+
+## Early UI + phase 2
+
+- **The UI came before phase 6** (the owner asked, because a CLI-only tool is hard
+  to use and to check). The spec's form is kept: a local web page on 127.0.0.1,
+  React, later packaged with Tauri.
+- **Localhost guards:** the Host header must be ours (defeats DNS rebinding). The
+  session cookie is HttpOnly and SameSite=Strict, and can only be set through the
+  one-time token link. API requests must come from our own origin. Uploads are
+  parsed from memory, so plaintext is never written to a temp file.
+- **No web fonts or CDNs.** The UI uses the system SF Pro, so opening the UI makes
+  no outbound requests.
+- **Slicing** uses nicknames (person, account type, broker, account), and every
+  view shares the same `Slice`.
+
+## Phase 3
+
+- **Attribution generalised.** Four look-throughs (see `attribution.py`) give price
+  / your money / fund rebalancing. For one fund level this is exactly spec §4.2.
+  It also works for nested funds and splits, and the three effects always sum to
+  the change. Weight-only funds and index proxies are marked ≈ because their
+  "baskets" move with prices.
+- **Flows are derived, not stored** (a departure from the spec's `cash_flows` table,
+  prompted by code review). An early version worked flows out once, at import time.
+  Out-of-order imports, corrected statements, and dividends or prices that arrived
+  later then left wrong flows behind. Now each pair of consecutive statements per
+  account (a "period") is re-evaluated from current data on every read. Only the
+  user's answers (`flow_answers`, keyed by account and period, latest answer wins,
+  so answers can be changed) and rules (`flow_rules`) are stored.
+- **Flow inference rules.** The first statement of an account is its starting
+  balance. The latest import wins for a given date.
+  - Below the threshold (max($500, 1% of value)), the difference is `inferred`.
+  - Above it, a remembered rule for that account and direction classifies it;
+    otherwise it becomes a question.
+  - A holding sold between statements with no close after the earlier statement
+    is a `data_gap` question. It is never valued at the old price.
+  - Dividends count once per security and date.
+  - Transfers pair two open questions from different accounts with opposite amounts
+    (within 1%) whose dates are within 7 days.
+- **Accounts opened mid-period** bring their opening value into returns as money
+  added, not as gain.
+- **Returns.** Periods start and end on statement dates, and flows are assumed to
+  happen on those dates. TWR is cumulative for the period. MWR is annualised
+  (XIRR), but periods under a year show the period figure, because annualising a
+  short period gives absurd numbers. Open questions are reported alongside, since
+  they make returns unreliable.
+- **dbt is not used (yet).** The spec planned dbt-duckdb for the incremental
+  `portfolio_daily`. It's one model with simple "compute once per day, append"
+  semantics, so a small Python function (`snapshots.py`) does it without dbt-core's
+  dependency weight. Revisit if the number of models grows.
+- **`portfolio_daily.kind`** (added): security, cash, other or fund_residual, so a
+  day's rows still add up to the portfolio.
+- **Prices from Tiingo.** The token lives in the Keychain and is sent in the
+  `Authorization` header, never in the URL or logs. Only `api.tiingo.com` over HTTPS
+  is allowed. The free tier is about 50 requests per hour, so each run has a budget:
+  held securities and funds first, then look-through constituents by size. The
+  others keep the price from their fund's holdings file. Split factors become
+  corporate actions, and dividends go to `prices.dividend_per_share`. A daily move
+  beyond ±25% that no split explains opens a review question.
+- **Repeat fetches** add no duplicate price rows or review questions.
+- **Localhost hardening** (from security review):
+  - The launch token works once and is exchanged for a separate session secret.
+    The cookie is named after the port, because browsers don't separate cookies
+    by port.
+  - API calls need an `X-Glassfolio: 1` header (which forces a CORS preflight
+    that is never approved), and `Sec-Fetch-Site` must be same-origin when present.
+  - Pages send `X-Frame-Options: DENY` and a strict CSP.
+  - Uploads stay in memory (Starlette's spooling to disk is disabled) and are capped
+    at 20 MB before parsing.
+  - The Tiingo client refuses redirects, since urllib would follow them to any host
+    with the token header.
+- **Scheduling** is left to the user (a launchd example is in the README). Glassfolio
+  never installs system configuration by itself.

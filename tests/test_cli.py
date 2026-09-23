@@ -66,3 +66,25 @@ def test_delete_source_removes_plaintext_after_import(cli, tmp_path):
     cli("import", "statement", copy, "--account", "A", "--profile", profile,
         "--as-of", "2026-09-18", "--delete-source", "-y")
     assert not copy.exists()
+
+
+def test_phase3_commands(cli, tmp_path, monkeypatch):
+    from conftest import build_golden
+    from glassfolio.keys import load_key
+    from glassfolio.config import data_home
+    from glassfolio.lake import open_lake
+    build_golden(open_lake(data_home(), load_key()))
+    out = cli("inbox")
+    assert "Alice Taxable" in out and "3,000.00" in out
+    item_id = out.split()[0]
+    cli("inbox", "answer", item_id, "deposit", "--remember")
+    assert cli("inbox").strip() == ""
+    out = cli("returns", "--start", "2026-09-18", "--end", "2026-09-30")
+    assert "TWR" in out and "!" not in out
+    out = cli("changes", "--start", "2026-09-18", "--end", "2026-09-30")
+    assert "NVDA" in out
+    monkeypatch.delenv("GLASSFOLIO_TIINGO_TOKEN", raising=False)
+    monkeypatch.setattr("glassfolio.keys.keyring.get_password",
+                        lambda s, a: None if a == "tiingo-token" else TEST_KEY)
+    out = cli("daily")
+    assert "No Tiingo token" in out and "Snapshot for" in out

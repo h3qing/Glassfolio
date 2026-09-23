@@ -6,9 +6,13 @@ import AccountsView from "./views/Accounts";
 import ChecksView from "./views/Checks";
 import ImportView from "./views/Import";
 import ActivityView from "./views/Activity";
+import ChangesView from "./views/Changes";
+import InboxView from "./views/Inbox";
 
 const VIEWS = [
   { id: "exposure", label: "What you own" },
+  { id: "changes", label: "What changed" },
+  { id: "inbox", label: "Questions" },
   { id: "accounts", label: "Accounts" },
   { id: "import", label: "Import" },
   { id: "checks", label: "Reconcile" },
@@ -48,9 +52,11 @@ export default function App() {
   const [asOf, setAsOf] = useState("");
   const [privacy, setPrivacy] = useState(false);
 
+  const [questions, setQuestions] = useState(0);
   const reload = useCallback(() => {
     api.meta().then((m) => { setMeta(m); setAsOf((d) => d || m.default_as_of); setError(null); })
       .catch((e) => setError(e.message));
+    api.inbox().then((i) => setQuestions(i.length)).catch(() => undefined);
   }, []);
   useEffect(reload, [reload]);
 
@@ -68,6 +74,7 @@ export default function App() {
           {VIEWS.map((v) => (
             <button key={v.id} aria-current={view === v.id ? "page" : undefined} onClick={() => setView(v.id)}>
               {v.label}
+              {v.id === "inbox" && questions > 0 && <span className="badge" aria-label={`${questions} open`}>{questions}</span>}
             </button>
           ))}
         </nav>
@@ -97,6 +104,8 @@ export default function App() {
           </button>
         </header>
         {meta && asOf && view === "exposure" && <ExposureView asOf={asOf} slice={slice} onImport={() => setView("import")} />}
+        {meta && asOf && view === "changes" && <ChangesView key={asOf} asOf={asOf} slice={slice} statementDates={meta.statement_dates} onInbox={() => setView("inbox")} />}
+        {view === "inbox" && <InboxView onChange={reload} />}
         {meta && view === "accounts" && <AccountsView meta={meta} onChange={reload} />}
         {meta && view === "import" && <ImportView meta={meta} asOf={asOf} onDone={reload} />}
         {meta && view === "checks" && <ChecksView meta={meta} asOf={asOf} />}

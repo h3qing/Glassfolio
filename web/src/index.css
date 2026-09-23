@@ -151,3 +151,18 @@ tr.selected td { background: var(--sheet-hover); }
   .sidebar { position: static; height: auto; }
   .hide-narrow { display: none; }
 }
+
+/* ---- attribution (validated categorical slots) ------------------------ */
+:root { --c-price: #2a78d6; --c-money: #eb6834; --c-rebal: #1baf7a; }
+@media (prefers-color-scheme: dark) { :root { --c-price: #3987e5; --c-money: #d95926; --c-rebal: #199e70; } }
+.diverge { display: flex; align-items: center; height: 14px; }
+.diverge-half { flex: 1; display: flex; gap: 2px; height: 100%; }
+.diverge-half.neg { justify-content: flex-end; }
+.diverge-half i { display: block; height: 100%; min-width: 2px; }
+.diverge-half.pos i:last-child { border-radius: 0 4px 4px 0; }
+.diverge-half.neg i:first-child { border-radius: 4px 0 0 4px; }
+.diverge-zero { width: 1px; height: 22px; background: var(--ink-3); margin: 0 2px; }
+.history { margin: 18px 0 0; }
+.history svg { width: 100%; height: 140px; display: block; cursor: crosshair; }
+.history figcaption { font-size: 13px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.badge { margin-left: 8px; background: var(--warn); color: #fff; border-radius: 9px; padding: 0 7px; font-size: 12px; font-weight: 600; }

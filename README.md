@@ -8,10 +8,17 @@ answers "how much NVDA do I actually own?" by looking through every fund down to
 companies, reconciling against your broker totals, and keeping all data on your
 machine, encrypted.
 
-> Status: phases 1–2, plus an early local web UI. Encrypted storage, statement and
-> ETF-holdings import, look-through exposure sliced by person, account type and
-> broker, reconciliation, and an audited write log with restore. The local AI
-> assistant and the Tauri desktop app come later
+> Status: phases 1–3, plus an early local web UI.
+> - Encrypted storage, and an audited write log with restore.
+> - Statement and ETF-holdings import.
+> - Look-through exposure, sliced by person, account type and broker.
+> - Reconciliation.
+> - Daily prices and snapshots.
+> - Cash flows inferred from statements, with questions when a difference is unclear.
+> - Attribution of each change to price, your money or fund rebalancing.
+> - TWR and MWR returns.
+>
+> The tax layer, the local AI assistant and the Tauri desktop app come later
 > ([roadmap](docs/SPEC.md#12-路线图)).
 
 ## Try it (synthetic data, 30 seconds)
@@ -50,6 +57,34 @@ uv run glassfolio exposure --ticker NVDA --group-by fund
 uv run glassfolio check --account "Schwab Taxable" --reported-total 123456.78
 uv run glassfolio ops                                      # audit log;  `restore <op_id>` rolls back
 uv run glassfolio serve                                    # web UI (build once: pnpm -C web install && pnpm -C web build)
+```
+
+### Daily prices and changes
+
+```bash
+uv run glassfolio config tiingo                     # free token from tiingo.com; stored in the Keychain
+uv run glassfolio daily                              # fetch closes, store today's snapshot, run checks
+uv run glassfolio inbox                              # unexplained cash flows and price anomalies
+uv run glassfolio inbox answer <id> deposit --remember
+uv run glassfolio changes --start 2026-09-01         # price / your money / fund rebalancing per company
+uv run glassfolio returns --start 2026-01-01         # TWR and MWR
+```
+
+To run `daily` automatically after the US close, add a launchd agent (Glassfolio
+never installs one for you). Save this as `~/Library/LaunchAgents/io.glassfolio.daily.plist`,
+fix the paths, then run `launchctl load` on it:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>io.glassfolio.daily</string>
+  <key>ProgramArguments</key><array>
+    <string>/path/to/uv</string><string>run</string><string>--project</string>
+    <string>/path/to/Glassfolio</string><string>glassfolio</string><string>daily</string>
+  </array>
+  <key>StartCalendarInterval</key><dict><key>Hour</key><integer>17</integer><key>Minute</key><integer>30</integer></dict>
+</dict></plist>
 ```
 
 `serve` listens on 127.0.0.1 only and prints a one-time link. API calls need the

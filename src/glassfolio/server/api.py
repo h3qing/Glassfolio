@@ -9,7 +9,11 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from glassfolio import broker_import, etf_import, market_import, recon, registry
+from glassfolio.attribution import company_attribution
 from glassfolio.exposure import Slice, company_exposure, portfolio_summary
+from glassfolio.flows import list_inbox, resolve_flow
+from glassfolio.performance import returns
+from glassfolio.snapshots import value_history
 from glassfolio.lake import Lake, list_ops, new_id
 from glassfolio.server.serialize import to_json
 
@@ -86,6 +90,30 @@ class Api:
         keys = ("scope", "account", "check_type", "as_of", "expected", "actual", "diff",
                 "status", "hint", "run_at")
         return JSONResponse(to_json([dict(zip(keys, r)) for r in rows]))
+
+    async def changes(self, request: Request) -> JSONResponse:
+        q, slice_ = request.query_params, self._slice(request)
+        start, end = date.fromisoformat(q["start"]), date.fromisoformat(q["end"])
+        if start > end:
+            raise ValueError("the start date must be before the end date")
+        return JSONResponse(to_json({
+            "start": start, "end": end,
+            "returns": returns(self.lake, start, end, slice_),
+            "companies": [{**to_json(a), "change": a.change}
+                          for a in company_attribution(self.lake, start, end, slice_)]}))
+
+    async def history(self, request: Request) -> JSONResponse:
+        rows = value_history(self.lake, self._slice(request))
+        return JSONResponse(to_json([{"date": d, "value": v} for d, v in rows]))
+
+    async def inbox(self, request: Request) -> JSONResponse:
+        return JSONResponse(to_json(list_inbox(self.lake)))
+
+    async def answer(self, request: Request) -> JSONResponse:
+        b = await request.json()
+        op = resolve_flow(self.lake, b["item_id"], b["classification"], b.get("pair") or None,
+                          bool(b.get("remember")))
+        return JSONResponse({"op_id": op})
 
     async def ops(self, request: Request) -> JSONResponse:
         return JSONResponse(to_json(list_ops(self.lake, 100)))
@@ -169,11 +197,12 @@ def _opt_float(value) -> float | None:
 
 
 async def _upload(request: Request) -> tuple[dict, bytes]:
-    form = await request.form()
-    upload = form.get("file")
-    if upload is None:
-        raise ValueError("no file uploaded")
-    raw = await upload.read()
-    if len(raw) > MAX_UPLOAD:
+    """Read one uploaded file into memory; it is never spooled to a plaintext temp file."""
+    if int(request.headers.get("content-length") or MAX_UPLOAD + 1) > MAX_UPLOAD:
         raise ValueError("file is larger than 20 MB")
-    return {k: v for k, v in form.items() if isinstance(v, str)}, raw
+    async with request.form(max_files=1, max_fields=20) as form:
+        upload = form.get("file")
+        if upload is None or isinstance(upload, str):
+            raise ValueError("no file uploaded")
+        raw = await upload.read()
+        return {k: v for k, v in form.items() if isinstance(v, str)}, raw

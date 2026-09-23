@@ -15,14 +15,14 @@ def client(golden, tmp_path):
     lake, _ = golden
     (tmp_path / "index.html").write_text("<html></html>")
     app = create_app(lake, TOKEN, (HOST,), static_dir=tmp_path)
-    c = TestClient(app, base_url=f"http://{HOST}")
+    c = TestClient(app, base_url=f"http://{HOST}", headers={"x-glassfolio": "1"})
     c.get(f"/?token={TOKEN}", follow_redirects=False)
     return c
 
 
 def test_api_requires_session_cookie(golden, tmp_path):
     app = create_app(golden[0], TOKEN, (HOST,), static_dir=tmp_path)
-    anon = TestClient(app, base_url=f"http://{HOST}")
+    anon = TestClient(app, base_url=f"http://{HOST}", headers={"x-glassfolio": "1"})
     assert anon.get("/api/exposure").status_code == 401
 
 
@@ -45,6 +45,7 @@ def test_cookie_is_httponly_and_strict(golden, tmp_path):
     app = create_app(golden[0], TOKEN, (HOST,), static_dir=tmp_path)
     r = TestClient(app, base_url=f"http://{HOST}").get(f"/?token={TOKEN}", follow_redirects=False)
     cookie = r.headers["set-cookie"].lower()
+    assert TOKEN.lower() not in cookie  # a separate session secret, not the launch token
     assert "httponly" in cookie and "samesite=strict" in cookie
 
 
@@ -99,3 +100,58 @@ def test_bad_input_is_a_400_not_a_crash(client):
     r = client.post("/api/import/etf", files={"file": ("x.csv", b"garbage")},
                     data={"etf": "ZZZ", "format": "ishares"})
     assert r.status_code == 400 and "iShares" in r.json()["error"]
+
+
+def test_changes_inbox_answer_and_returns(client):
+    q = "start=2026-09-18&end=2026-09-30&account=Alice%20Taxable"
+    body = client.get(f"/api/changes?{q}").json()
+    nvda = {c["ticker"]: c for c in body["companies"]}["NVDA"]
+    assert nvda["rebalance_effect"] == pytest.approx(1210) and nvda["change"] == pytest.approx(1754)
+    assert body["returns"]["open_questions"] == 1
+    (item,) = client.get("/api/inbox").json()
+    r = client.post("/api/inbox/answer", json={"item_id": item["item_id"], "classification": "deposit"})
+    assert r.status_code == 200
+    after = client.get(f"/api/changes?{q}").json()["returns"]
+    assert after["open_questions"] == 0 and after["twr"] == pytest.approx(8350 / 8000 - 1)
+
+
+def test_changes_rejects_reversed_dates(client):
+    r = client.get("/api/changes?start=2026-09-30&end=2026-09-18")
+    assert r.status_code == 400
+
+
+def test_launch_token_works_once(golden, tmp_path):
+    app = create_app(golden[0], TOKEN, (HOST,), static_dir=tmp_path)
+    c = TestClient(app, base_url=f"http://{HOST}")
+    first = c.get(f"/?token={TOKEN}", follow_redirects=False)
+    assert first.status_code == 303 and TOKEN not in first.headers["set-cookie"]
+    assert TestClient(app, base_url=f"http://{HOST}").get(
+        f"/?token={TOKEN}", follow_redirects=False).status_code == 403
+
+
+def test_non_ascii_token_is_a_403_not_a_crash(golden, tmp_path):
+    app = create_app(golden[0], TOKEN, (HOST,), static_dir=tmp_path)
+    c = TestClient(app, base_url=f"http://{HOST}", raise_server_exceptions=False)
+    assert c.get("/?token=%C3%A9", follow_redirects=False).status_code == 403
+
+
+def test_api_needs_client_header(client):
+    assert client.get("/api/meta", headers={"x-glassfolio": ""}).status_code == 403
+
+
+def test_cross_site_fetch_metadata_is_refused(client):
+    assert client.get("/api/meta", headers={"sec-fetch-site": "cross-site"}).status_code == 403
+    assert client.get("/api/meta", headers={"sec-fetch-site": "same-site"}).status_code == 403
+    assert client.get("/api/meta", headers={"sec-fetch-site": "same-origin"}).status_code == 200
+
+
+def test_pages_cannot_be_framed(client):
+    r = client.get("/")
+    assert r.headers["x-frame-options"] == "DENY"
+    assert "frame-ancestors 'none'" in r.headers["content-security-policy"]
+
+
+def test_oversized_upload_rejected_before_parsing(client):
+    r = client.post("/api/import/prices", content=b"x", headers={
+        "content-type": "multipart/form-data; boundary=b", "content-length": str(30 * 1024 * 1024)})
+    assert r.status_code == 400 and "20 MB" in r.json()["error"]

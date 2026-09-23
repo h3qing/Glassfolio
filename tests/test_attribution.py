@@ -45,3 +45,12 @@ def test_same_date_has_no_change(golden):
     lake, _ = golden
     for row in company_attribution(lake, D, D):
         assert row.end_value - row.start_value == pytest.approx(0)
+
+
+def test_missing_price_is_flagged_not_shown_as_a_crash(golden):
+    lake, _ = golden
+    lake.con.execute("DELETE FROM prices WHERE date = '2026-09-30'")
+    lake.con.execute("DELETE FROM prices WHERE security_id IN (SELECT security_id FROM securities "
+                     "WHERE ticker = 'NVDA')")
+    nvda = by_ticker(company_attribution(lake, D, T1, TAXABLE))["NVDA"]
+    assert nvda.missing_price

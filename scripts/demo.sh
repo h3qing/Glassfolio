@@ -22,9 +22,11 @@ gf import etf $G/etf_vti.csv --etf VTI --as-of 2026-09-17 -y >/dev/null
 gf import etf $G/etf_gfof_ishares.csv --etf GFOF --format ishares -y >/dev/null
 gf import statement $G/broker_alice_taxable.csv --account "Alice Taxable" --profile "$PROFILE" --as-of 2026-09-18 -y >/dev/null
 gf import statement $G/broker_alice_roth.csv --account "Alice Roth" --profile "$PROFILE" --as-of 2026-09-12 -y >/dev/null
+gf import statement $G/broker_alice_taxable_2026-09-30.csv --account "Alice Taxable" --profile "$PROFILE" --as-of 2026-09-30 -y >/dev/null
 gf import prices $G/prices.csv >/dev/null
 gf import actions $G/corporate_actions.csv >/dev/null
 gf proxy GCIT VTI >/dev/null
+for d in 2026-09-12 2026-09-18 2026-09-25 2026-09-30; do gf snapshot --date $d >/dev/null; done
 
 if [[ "${1:-}" == "--ui" ]]; then
   [[ -f web/dist/index.html ]] || (cd web && pnpm install --silent && pnpm build >/dev/null)
@@ -36,5 +38,8 @@ echo; echo "== All companies, 2026-09-18 =="; gf exposure --as-of 2026-09-18
 echo; echo "== NVDA by fund =="; gf exposure --ticker NVDA --group-by fund --as-of 2026-09-18
 echo; echo "== Reconcile taxable account against broker total 8,010 =="
 gf check --account "Alice Taxable" --as-of 2026-09-18 --reported-total 8010 --reported-cost 5500
+echo; echo "== What changed 09-18 → 09-30 (price / your money / fund rebalancing) =="
+gf changes --start 2026-09-18 --end 2026-09-30
+echo; echo "== Questions (unexplained cash flows) =="; gf inbox
 echo; echo "== Audit log =="; gf ops --limit 5
 echo; echo "Demo database: $GLASSFOLIO_HOME (key discarded when this shell exits)"

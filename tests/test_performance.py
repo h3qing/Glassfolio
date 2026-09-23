@@ -34,6 +34,7 @@ def test_mwr_matches_closed_form(golden):
     r = returns(lake, D, T1, TAXABLE)
     days = (T1 - D).days
     assert r.mwr == pytest.approx((8350 / 8000) ** (365 / days) - 1, rel=1e-6)
+    assert r.mwr_period == pytest.approx(8350 / 8000 - 1, rel=1e-6)
 
 
 def test_open_questions_are_reported(golden):
@@ -71,3 +72,30 @@ def test_snapshot_rebuild_supersedes(golden):
     snapshot_day(lake, D)
     snapshot_day(lake, D, rebuild=True)
     assert dict(value_history(lake))[D] == pytest.approx(18000)
+
+
+def test_account_opened_mid_period_is_money_added_not_gain(lake, tmp_path):
+    import json
+    from conftest import GOLDEN
+    from glassfolio.broker_import import commit_statement, preview_statement
+    from glassfolio.registry import add_account, add_owner, add_profile
+    add_owner(lake, "bob")
+    add_account(lake, "A", "bob", "G", "taxable")
+    add_account(lake, "B", "bob", "G", "taxable")
+    profile = add_profile(lake, "G", json.loads((GOLDEN / "broker_profile.json").read_text()))
+    for acct, day, cash in (("A", date(2026, 1, 31), 10000), ("A", date(2026, 3, 31), 10000),
+                            ("B", date(2026, 2, 28), 50000)):
+        path = tmp_path / f"{acct}{day}.csv"
+        path.write_text(f'"{acct} as of {day}"\n"Symbol","Description","Quantity","Price","Market Value",'
+                        f'"Cost Basis"\n"Cash & Cash Investments","--","--","--","${cash}","--"\n')
+        commit_statement(lake, preview_statement(lake, path, acct, profile, day))
+    r = returns(lake, date(2026, 1, 31), date(2026, 3, 31))
+    assert r.net_flows == pytest.approx(50000)
+    assert r.twr == pytest.approx(0) and r.mwr == pytest.approx(0, abs=1e-6)
+
+
+def test_missing_prices_are_reported(golden):
+    lake, _ = golden
+    lake.con.execute("DELETE FROM prices")
+    r = returns(lake, D, T1)
+    assert r.missing_prices > 0

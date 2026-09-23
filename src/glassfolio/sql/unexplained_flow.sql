@@ -1,7 +1,9 @@
 -- Unexplained change between two statements of one account (spec §4.3):
 --   end value − start holdings at end prices − dividends paid on start holdings
 -- Start shares are split-adjusted to the end date. End prices come from the new
--- statement; a security sold in between uses the latest close. Cash is 1.0.
+-- statement; a security sold in between needs a close dated after the start
+-- statement (otherwise it counts as unpriced). Cash is 1.0. Dividends count once
+-- per security and date, whichever source reported them.
 WITH splits AS (
     SELECT DISTINCT security_id, date, ratio_or_amount::DOUBLE AS ratio
     FROM corporate_actions WHERE type = 'split'
@@ -22,11 +24,11 @@ start_valued AS (
             AND x.date > $start_date AND x.date <= $end_date), 1) AS shares,
         CASE WHEN c.type = 'cash' THEN 1.0 ELSE coalesce(e.price, (
             SELECT p.close::DOUBLE FROM prices p WHERE p.security_id = s.security_id
-              AND p.date <= $end_date AND p.close IS NOT NULL
+              AND p.date > $start_date AND p.date <= $end_date AND p.close IS NOT NULL
             ORDER BY p.date DESC LIMIT 1)) END AS end_price,
-        coalesce((SELECT sum(p.dividend_per_share::DOUBLE) FROM prices p
+        coalesce((SELECT sum(d) FROM (SELECT max(p.dividend_per_share::DOUBLE) AS d FROM prices p
             WHERE p.security_id = s.security_id AND p.date > $start_date
-              AND p.date <= $end_date), 0) * s.shares AS dividends
+              AND p.date <= $end_date GROUP BY p.date)), 0) * s.shares AS dividends
     FROM start_pos s JOIN sec c USING (security_id)
     LEFT JOIN end_pos e USING (security_id)
 )

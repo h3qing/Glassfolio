@@ -1,10 +1,18 @@
-"""Cash flows inferred from statement differences, and the inbox that asks about
+"""Cash flows inferred from statement differences, and the questions asked about
 the ones that can't be explained (spec §2.4, §4.3).
 
-No transactions are imported. After each statement, the change not explained by
-prices and dividends is either recorded (small), classified by a saved rule, or
-turned into an inbox question. Flows are dated to the statement date, so returns
-are approximate; more frequent statements make them more accurate.
+Nothing about flows is computed at import time. Each pair of consecutive
+statements for an account (a "period") is re-evaluated on every read against the
+current data, so corrected statements, late dividends, newly fetched prices and
+out-of-order imports can't leave stale flows behind. Only the user's answers and
+rules are stored.
+
+Per period, the change that prices and dividends don't explain is:
+- classified by the user's answer for that period, if any;
+- else by a remembered rule for that account and direction;
+- else recorded as `inferred` when small (< max($500, 1% of value));
+- else asked about in the inbox.
+Flows are dated to the statement date, so returns are approximate.
 """
 
 import json
@@ -13,19 +21,40 @@ from datetime import date, datetime
 from functools import cache
 from importlib import resources
 
-import duckdb
-
 from glassfolio.lake import Lake, OpMeta, RowCounts, new_id, run_write, utc_now
 
 MIN_THRESHOLD = 500.0
 REL_THRESHOLD = 0.01
 CLASSIFICATIONS = ("deposit", "withdrawal", "transfer", "dividend", "not_a_flow")
+EXTERNAL = ("deposit", "withdrawal", "transfer")
 PAIR_DAYS = 7
 
 
 @cache
 def _sql() -> str:
     return resources.files("glassfolio").joinpath("sql", "unexplained_flow.sql").read_text()
+
+
+@dataclass(frozen=True)
+class Period:
+    account_id: str
+    account: str
+    start: date
+    start_hash: str
+    end: date
+    end_hash: str
+
+    @property
+    def key(self) -> str:
+        return f"{self.account_id}:{self.start}:{self.end}"
+
+
+@dataclass(frozen=True)
+class PeriodResult:
+    period: Period
+    amount: float | None      # None when a sold holding has no later price
+    end_value: float
+    unpriced: int
 
 
 @dataclass(frozen=True)
@@ -43,81 +72,122 @@ class CashFlow:
 @dataclass(frozen=True)
 class InboxItem:
     item_id: str
-    type: str
+    type: str  # unexplained_flow | data_gap | price_review
     payload: dict
     status: str
-    created_at: datetime
+    created_at: datetime | None
     pair_candidates: tuple[dict, ...] = ()
 
 
-def _previous_statement(con, account_id: str, as_of: date) -> tuple[str, date] | None:
-    return con.execute(
-        """SELECT file_hash, as_of_date FROM import_files
-           WHERE kind = 'statement' AND status = 'imported' AND account_id = ? AND as_of_date < ?
-           ORDER BY as_of_date DESC, imported_at DESC LIMIT 1""", [account_id, as_of]).fetchone()
+def periods(con) -> tuple[Period, ...]:
+    """Consecutive statements per account; the latest import wins for a given date."""
+    rows = con.execute("""
+        WITH eff AS (
+            SELECT account_id, as_of_date, file_hash FROM import_files
+            WHERE kind = 'statement' AND status = 'imported'
+            QUALIFY row_number() OVER (PARTITION BY account_id, as_of_date ORDER BY imported_at DESC) = 1),
+        names AS (SELECT account_id, nickname FROM accounts QUALIFY row_number() OVER (
+            PARTITION BY account_id ORDER BY created_at DESC) = 1)
+        SELECT e.account_id, n.nickname, lag(e.as_of_date) OVER w, lag(e.file_hash) OVER w,
+               e.as_of_date, e.file_hash
+        FROM eff e JOIN names n USING (account_id)
+        WINDOW w AS (PARTITION BY e.account_id ORDER BY e.as_of_date)
+        QUALIFY lag(e.as_of_date) OVER w IS NOT NULL
+        ORDER BY e.as_of_date, n.nickname""").fetchall()
+    return tuple(Period(*r) for r in rows)
 
 
-def _rule_for(con, account_id: str, amount: float) -> tuple[str, str] | None:
-    pattern = "in" if amount > 0 else "out"
-    return con.execute(
-        """SELECT rule_id, classification FROM flow_rules WHERE account_id = ? AND pattern = ?
-           ORDER BY created_at DESC LIMIT 1""", [account_id, pattern]).fetchone()
-
-
-def _insert_flow(con, account_id, day, amount, type_, source, rule_id=None, flow_id=None,
-                 paired=None) -> str:
-    flow_id = flow_id or new_id("flow")
-    con.execute("INSERT INTO cash_flows VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                [flow_id, account_id, day, f"{amount:.2f}", type_, source, rule_id, paired, utc_now()])
-    return flow_id
-
-
-def _insert_item(con, item_id, type_, payload, status, created_at, resolved_at=None) -> None:
-    con.execute("INSERT INTO inbox_items VALUES (?, ?, ?, ?, ?, ?)",
-                [item_id, type_, json.dumps(payload), status, created_at, resolved_at])
-
-
-def infer_after_statement(con: duckdb.DuckDBPyConnection, account_id: str, nickname: str,
-                          end_hash: str, end_date: date) -> RowCounts:
-    """Runs inside the statement import transaction."""
-    prev = _previous_statement(con, account_id, end_date)
-    if prev is None:
-        return RowCounts()  # the first statement is the starting balance
-    start_hash, start_date = prev
+def evaluate(con, p: Period) -> PeriodResult:
     end_value, start_value, dividends, unpriced = con.execute(_sql(), {
-        "account_id": account_id, "start_hash": start_hash, "end_hash": end_hash,
-        "start_date": start_date, "end_date": end_date}).fetchone()
-    base = {"account_id": account_id, "account": nickname,
-            "start": start_date.isoformat(), "end": end_date.isoformat()}
+        "account_id": p.account_id, "start_hash": p.start_hash, "end_hash": p.end_hash,
+        "start_date": p.start, "end_date": p.end}).fetchone()
     if unpriced:
-        _insert_item(con, new_id("inbox"), "data_gap", {**base, "message":
-                     f"{unpriced} sold holdings have no price, so the cash flow can't be worked out"},
-                     "open", utc_now())
-        return RowCounts(inserted=1)
-    amount = round(end_value - start_value - dividends, 2)
-    if abs(amount) < 0.01:
-        return RowCounts()
-    rule = _rule_for(con, account_id, amount)
-    if rule is not None:
-        _insert_flow(con, account_id, end_date, amount, rule[1], "rule", rule_id=rule[0])
-    elif abs(amount) < max(MIN_THRESHOLD, REL_THRESHOLD * abs(end_value)):
-        _insert_flow(con, account_id, end_date, amount,
-                     "deposit" if amount > 0 else "withdrawal", "inferred")
-    else:
-        _insert_item(con, new_id("inbox"), "unexplained_flow",
-                     {**base, "amount": amount, "end_value": end_value}, "open", utc_now())
-    return RowCounts(inserted=1)
+        return PeriodResult(p, None, end_value or 0.0, unpriced)
+    return PeriodResult(p, round((end_value or 0) - (start_value or 0) - (dividends or 0), 2),
+                        end_value or 0.0, 0)
 
 
-_OPEN_SQL = """SELECT * FROM inbox_items QUALIFY row_number() OVER (
-    PARTITION BY item_id ORDER BY coalesce(resolved_at, created_at) DESC, status = 'open') = 1"""
+def _answers(con) -> dict[str, tuple[str, str | None]]:
+    rows = con.execute("""SELECT item_id, classification, paired_item_id FROM flow_answers
+        QUALIFY row_number() OVER (PARTITION BY item_id ORDER BY created_at DESC) = 1""").fetchall()
+    return {r[0]: (r[1], r[2]) for r in rows}
 
 
-def _items(con, status: str | None) -> tuple[InboxItem, ...]:
-    where = "WHERE status = ?" if status else ""
-    rows = con.execute(f"SELECT * FROM ({_OPEN_SQL}) {where} ORDER BY created_at",
-                       [status] if status else []).fetchall()
-    return tuple(InboxItem(r[0], r[1], json.loads(r[2]), r[3], r[4]) for r in rows)
+def _rules(con) -> dict[tuple[str, str], tuple[str, str]]:
+    rows = con.execute("""SELECT account_id, pattern, rule_id, classification FROM flow_rules
+        QUALIFY row_number() OVER (PARTITION BY account_id, pattern ORDER BY created_at DESC) = 1""").fetchall()
+    return {(r[0], r[1]): (r[2], r[3]) for r in rows}
+
+
+def _flow_item_id(p: Period) -> str:
+    return f"flow:{p.key}"
+
+
+def _gap_item_id(p: Period) -> str:
+    return f"gap:{p.key}"
+
+
+@dataclass(frozen=True)
+class _State:
+    results: tuple[PeriodResult, ...]
+    answers: dict
+    rules: dict
+
+
+def _state(con) -> _State:
+    return _State(tuple(evaluate(con, p) for p in periods(con)), _answers(con), _rules(con))
+
+
+def _is_small(r: PeriodResult) -> bool:
+    return abs(r.amount) < max(MIN_THRESHOLD, REL_THRESHOLD * abs(r.end_value))
+
+
+def list_cash_flows(lake: Lake) -> tuple[CashFlow, ...]:
+    s = _state(lake.con)
+    flows = []
+    for r in s.results:
+        if r.amount is None or abs(r.amount) < 0.01:
+            continue
+        p, item_id = r.period, _flow_item_id(r.period)
+        answer = s.answers.get(item_id)
+        rule = s.rules.get((p.account_id, "in" if r.amount > 0 else "out"))
+        if answer is not None:
+            kind, paired = answer
+            if kind != "not_a_flow":
+                flows.append(CashFlow(item_id, p.account_id, p.end, r.amount, kind, "user_confirmed",
+                                      None, paired))
+        elif rule is not None:
+            flows.append(CashFlow(item_id, p.account_id, p.end, r.amount, rule[1], "rule", rule[0], None))
+        elif _is_small(r):
+            flows.append(CashFlow(item_id, p.account_id, p.end, r.amount,
+                                  "deposit" if r.amount > 0 else "withdrawal", "inferred", None, None))
+    return tuple(flows)
+
+
+def _open_questions(s: _State) -> tuple[InboxItem, ...]:
+    items = []
+    for r in s.results:
+        p = r.period
+        base = {"account_id": p.account_id, "account": p.account,
+                "start": p.start.isoformat(), "end": p.end.isoformat()}
+        if r.amount is None:
+            if _gap_item_id(p) not in s.answers:
+                items.append(InboxItem(_gap_item_id(p), "data_gap", {**base, "message":
+                    f"{p.account}: {r.unpriced} holding(s) sold between {p.start} and {p.end} have no "
+                    "later price, so money in or out can't be worked out. Import closing prices."},
+                    "open", None))
+        elif (abs(r.amount) >= 0.01 and not _is_small(r) and _flow_item_id(p) not in s.answers
+              and (p.account_id, "in" if r.amount > 0 else "out") not in s.rules):
+            items.append(InboxItem(_flow_item_id(p), "unexplained_flow",
+                                   {**base, "amount": r.amount, "end_value": r.end_value}, "open", None))
+    return tuple(items)
+
+
+def _stored_items(con) -> tuple[InboxItem, ...]:
+    rows = con.execute("""SELECT item_id, type, payload, status, created_at FROM inbox_items
+        QUALIFY row_number() OVER (PARTITION BY item_id
+            ORDER BY coalesce(resolved_at, created_at) DESC, status = 'open') = 1""").fetchall()
+    return tuple(InboxItem(r[0], r[1], json.loads(r[2]), r[3], r[4]) for r in rows if r[3] == "open")
 
 
 def _pairs(item: InboxItem, others: tuple[InboxItem, ...]) -> tuple[dict, ...]:
@@ -127,67 +197,68 @@ def _pairs(item: InboxItem, others: tuple[InboxItem, ...]) -> tuple[dict, ...]:
     return tuple(
         {"item_id": o.item_id, "account": o.payload["account"], "amount": o.payload["amount"]}
         for o in others
-        if o.item_id != item.item_id and o.type == "unexplained_flow"
-        and o.payload["account_id"] != item.payload["account_id"]
+        if o.type == "unexplained_flow" and o.payload["account_id"] != item.payload["account_id"]
         and abs(a + o.payload["amount"]) <= max(1.0, 0.01 * abs(a))
         and abs((date.fromisoformat(o.payload["end"]) - end).days) <= PAIR_DAYS)
 
 
-def list_inbox(lake: Lake, status: str | None = "open") -> tuple[InboxItem, ...]:
-    items = _items(lake.con, status)
-    open_items = items if status == "open" else _items(lake.con, "open")
-    return tuple(InboxItem(i.item_id, i.type, i.payload, i.status, i.created_at,
-                           _pairs(i, open_items)) for i in items)
+def list_inbox(lake: Lake) -> tuple[InboxItem, ...]:
+    questions = _open_questions(_state(lake.con))
+    with_pairs = tuple(InboxItem(i.item_id, i.type, i.payload, i.status, i.created_at, _pairs(i, questions))
+                       for i in questions)
+    return with_pairs + _stored_items(lake.con)
 
 
-def list_cash_flows(lake: Lake) -> tuple[CashFlow, ...]:
-    rows = lake.con.execute(
-        """SELECT flow_id, account_id, date, amount::DOUBLE, type, source, rule_id, paired_flow_id
-           FROM cash_flows QUALIFY row_number() OVER (PARTITION BY flow_id ORDER BY created_at DESC) = 1
-           ORDER BY date, flow_id""").fetchall()
-    return tuple(CashFlow(*r) for r in rows)
+def _answer_rows(item: InboxItem, classification: str, paired: str | None, now) -> tuple:
+    p = item.payload
+    return (item.item_id, p["account_id"], date.fromisoformat(p["start"]),
+            date.fromisoformat(p["end"]), classification, paired, now)
 
 
 def resolve_flow(lake: Lake, item_id: str, classification: str, paired_item_id: str | None = None,
                  remember: bool = False, actor: str = "user") -> str:
-    """Answer an unexplained-flow question. `remember` saves a rule for this account."""
+    """Answer a question. Flow questions can be re-answered later to change the answer."""
     if classification not in CLASSIFICATIONS:
         raise ValueError(f"classification must be one of {CLASSIFICATIONS}")
-    items = {i.item_id: i for i in list_inbox(lake)}
-    item = items.get(item_id)
+    open_items = {i.item_id: i for i in list_inbox(lake)}
+    answered = _answers(lake.con)
+    item = open_items.get(item_id)
+    if item is None and item_id in answered:  # re-answer: rebuild the question from its period
+        item = next((InboxItem(_flow_item_id(r.period), "unexplained_flow",
+                               {"account_id": r.period.account_id, "account": r.period.account,
+                                "start": r.period.start.isoformat(), "end": r.period.end.isoformat(),
+                                "amount": r.amount}, "answered", None)
+                     for r in _state(lake.con).results if _flow_item_id(r.period) == item_id), None)
     if item is None:
-        raise ValueError("this question is already resolved or does not exist")
+        raise ValueError("this question does not exist or is already resolved")
+    if item.type != "unexplained_flow" and classification != "not_a_flow":
+        raise ValueError("this question can only be marked as checked")
     pair = None
     if classification == "transfer":
-        pair = items.get(paired_item_id or "")
+        pair = open_items.get(paired_item_id or "")
         if pair is None or pair.item_id not in {c["item_id"] for c in item.pair_candidates}:
             raise ValueError("a transfer needs the matching question from the other account")
 
     def work(con):
         now = utc_now()
-        p = item.payload
-        n = 1
+        n = 0
+        if item.type == "price_review":
+            con.execute("INSERT INTO inbox_items VALUES (?, ?, ?, 'resolved', ?, ?)",
+                        [item.item_id, item.type, json.dumps(item.payload), item.created_at, now])
+            return None, RowCounts(inserted=1)
+        con.execute("INSERT INTO flow_answers VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    list(_answer_rows(item, classification, pair.item_id if pair else None, now)))
+        n += 1
         if pair is not None:
-            ids = (new_id("flow"), new_id("flow"))
-            for flow_id, other, it in ((ids[0], ids[1], item), (ids[1], ids[0], pair)):
-                q = it.payload
-                _insert_flow(con, q["account_id"], date.fromisoformat(q["end"]), q["amount"],
-                             "transfer", "user_confirmed", flow_id=flow_id, paired=other)
-                _insert_item(con, it.item_id, it.type, q, "resolved", it.created_at, now)
-            n = 4
-        else:
-            if classification != "not_a_flow":
-                _insert_flow(con, p["account_id"], date.fromisoformat(p["end"]), p["amount"],
-                             classification, "user_confirmed")
-            _insert_item(con, item.item_id, item.type, p, "resolved", item.created_at, now)
-            n = 2
-        if remember and classification not in ("transfer",):
+            con.execute("INSERT INTO flow_answers VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        list(_answer_rows(pair, "transfer", item.item_id, now)))
+            n += 1
+        if remember and item.type == "unexplained_flow" and classification != "transfer":
             con.execute("INSERT INTO flow_rules VALUES (?, ?, ?, ?, ?)",
-                        [new_id("rule"), p["account_id"], "in" if p["amount"] > 0 else "out",
-                         classification, now])
+                        [new_id("rule"), item.payload["account_id"],
+                         "in" if item.payload["amount"] > 0 else "out", classification, now])
             n += 1
         return None, RowCounts(inserted=n)
 
     params = {"item_id": item_id, "classification": classification, "remember": remember}
-    return run_write(lake, OpMeta(actor, "resolve_flow", params, "answer a cash flow question"),
-                     work)[1]
+    return run_write(lake, OpMeta(actor, "resolve_flow", params, "answer a question"), work)[1]

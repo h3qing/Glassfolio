@@ -14,10 +14,14 @@ from starlette.staticfiles import StaticFiles
 
 from glassfolio.lake import Lake
 from glassfolio.parsing import printable
-from glassfolio.server.api import Api
+from starlette.formparsers import MultiPartParser
+
+from glassfolio.server.api import MAX_UPLOAD, Api
 from glassfolio.server.security import LocalGuard
 
 STATIC = Path(__file__).resolve().parents[3] / "web" / "dist"
+# Keep uploads in memory: Starlette would otherwise spool files over 1 MB to $TMPDIR.
+MultiPartParser.spool_max_size = MAX_UPLOAD + 1
 
 
 def _guarded(handler):
@@ -34,11 +38,13 @@ def create_app(lake: Lake, token: str, allowed_hosts, static_dir: Path = STATIC)
     api = Api(lake)
     get = [("/api/meta", api.meta), ("/api/exposure", api.exposure),
            ("/api/company/{ticker}", api.company), ("/api/checks", api.checks),
-           ("/api/ops", api.ops)]
+           ("/api/ops", api.ops), ("/api/changes", api.changes), ("/api/history", api.history),
+           ("/api/inbox", api.inbox)]
     post = [("/api/checks", api.run_checks), ("/api/owners", api.add_owner),
             ("/api/accounts", api.add_account), ("/api/profiles", api.add_profile),
             ("/api/import/statement", api.preview_statement), ("/api/import/etf", api.preview_etf),
-            ("/api/import/prices", api.import_prices), ("/api/import/commit", api.commit)]
+            ("/api/import/prices", api.import_prices), ("/api/import/commit", api.commit),
+            ("/api/inbox/answer", api.answer)]
     routes = [Route(p, _guarded(h), methods=["GET"]) for p, h in get]
     routes += [Route(p, _guarded(h), methods=["POST"]) for p, h in post]
     if (static_dir / "index.html").exists():
