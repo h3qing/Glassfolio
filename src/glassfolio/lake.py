@@ -6,6 +6,7 @@ with the op_id so the log and the snapshot history stay linked.
 """
 
 import json
+import os
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -17,6 +18,7 @@ from typing import Callable, Mapping, Sequence, TypeVar
 import duckdb
 
 from glassfolio.keys import validate_key
+from glassfolio.paths import resource_root
 
 CATALOG = "lake"
 BUSINESS_TABLES = (
@@ -76,7 +78,12 @@ def open_lake(home: Path, key: str) -> Lake:
     con = duckdb.connect()
     con.execute("SET temp_file_encryption = true")
     con.execute(f"SET temp_directory = {_sql_str(str(home / 'tmp'))}")
-    con.execute("INSTALL ducklake; LOAD ducklake")
+    ext_dir = os.environ.get("GLASSFOLIO_EXTENSIONS")
+    bundled = (Path(ext_dir) if ext_dir else resource_root() / "extensions") / "ducklake.duckdb_extension"
+    if bundled.exists():  # the desktop app ships it: no download on first launch
+        con.execute(f"LOAD {_sql_str(str(bundled))}")
+    else:
+        con.execute("INSTALL ducklake; LOAD ducklake")
     meta = _sql_str(f"ducklake:{home / 'catalog.duckdb'}")
     data = _sql_str(str(home / "data") + "/")
     con.execute(

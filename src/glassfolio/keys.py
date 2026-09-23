@@ -30,6 +30,14 @@ def load_key() -> str:
     return validate_key(key)
 
 
+def store_key(key: str, replace_existing: bool = False) -> None:
+    """Put a verified key in the Keychain; never silently replaces a different one."""
+    current = keyring.get_password(SERVICE, ACCOUNT)
+    if current and current != key and not replace_existing:
+        raise DbKeyError("a different key is already in the Keychain; use --replace if you're sure")
+    keyring.set_password(SERVICE, ACCOUNT, validate_key(key))
+
+
 def create_key() -> str:
     """Generate a key and store it in the Keychain. Refuses to overwrite."""
     if keyring.get_password(SERVICE, ACCOUNT):

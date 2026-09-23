@@ -19,9 +19,10 @@ from glassfolio.broker_import import commit_statement, preview_statement
 from glassfolio.demo import T1, build_golden
 from glassfolio.lake import open_lake
 from glassfolio.llm import ChatModel
+from glassfolio.paths import resource_root
 from glassfolio.registry import add_account
 
-CASES = Path(__file__).resolve().parents[3] / "evals" / "assistant"
+CASES = resource_root() / "evals" / "assistant"
 
 
 @dataclass(frozen=True)

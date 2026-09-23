@@ -19,7 +19,7 @@ from glassfolio.llm import list_models
 from glassfolio.model_eval import run_eval, summary
 from glassfolio.parsing import clean, parse_number, read_rows
 from glassfolio.server.serialize import to_json
-from glassfolio.settings import choose_model, configured_model, load_settings, record_eval
+from glassfolio.settings import choose_model, configured_model, load_settings, record_eval, set_touch_id
 from glassfolio.tax_profiles import parse_lots
 from glassfolio.understand import FIELDS, KINDS, Reading, read_file, validate
 from glassfolio.server.api import keep_recent
@@ -92,7 +92,14 @@ class AssistApi:
         s = load_settings()
         available = list_models(s.url)
         return JSONResponse(to_json({"url": s.url, "name": s.name, "available": available,
-                                     "reachable": bool(available), "evals": s.evals}))
+                                     "reachable": bool(available), "evals": s.evals,
+                                     "require_touch_id": s.require_touch_id}))
+
+    async def touch_id(self, request: Request) -> JSONResponse:
+        body = await request.json()
+        if not isinstance(body, dict) or not isinstance(body.get("required"), bool):
+            raise ValueError("required must be true or false")
+        return JSONResponse({"require_touch_id": set_touch_id(body["required"]).require_touch_id})
 
     async def choose(self, request: Request) -> JSONResponse:
         b = await request.json()

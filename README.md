@@ -20,8 +20,8 @@ machine, encrypted.
 > - After-tax values by account type and person, with what-if rates.
 > - A local-model assistant: LLM-assisted import, chat over your data, and an MCP server.
 >
-> The Tauri desktop app comes later
-> ([roadmap](docs/SPEC.md#12-路线图)).
+> Also: a macOS desktop app (Tauri) with native Liquid Glass and Touch ID.
+> The remaining roadmap item is P2 ([roadmap](docs/SPEC.md#12-路线图)).
 
 ## Try it (synthetic data, 30 seconds)
 
@@ -42,6 +42,33 @@ This loads the [golden test portfolio](tests/golden/README.md) into a throwaway
 database with a throwaway key, then prints the look-through exposure, the NVDA
 breakdown by fund, a reconciliation, and the audit log. It never touches your
 Keychain.
+
+## Desktop app (macOS)
+
+```bash
+./scripts/build_app.sh     # needs Rust, uv and pnpm; about 2 minutes
+open dist/Glassfolio.dmg   # drag Glassfolio to Applications
+```
+
+- **What it is:** a native window with Liquid Glass (macOS 26, with standard
+  vibrancy on older versions) around the same interface. The analysis service runs
+  inside the app, and everything stays on 127.0.0.1.
+- **Opening it:** it asks for Touch ID or your Mac's password (you can turn this
+  off under Settings), then reads the encryption key from the Keychain. Touch ID is
+  a convenience lock against someone using your unlocked Mac. It doesn't protect
+  against software already running as you. On first
+  launch it creates the key and shows the recovery key once. Write it down and keep
+  it offline.
+- **Existing CLI data:** if you set up with `glassfolio init`, the app uses the same
+  key and data. macOS asks once whether Glassfolio may use the Keychain item.
+- **Lost Keychain item:** run `glassfolio key restore`, or from the app:
+  `/Applications/Glassfolio.app/Contents/MacOS/glassfolio-server key restore`. It
+  asks for your recovery key and checks that it opens your data.
+- **Not notarized:** the app has no Developer ID signature. A copy you download
+  will be blocked by Gatekeeper; right-click it and choose Open.
+
+For development: `cd src-tauri && cargo tauri dev` (the service runs from the repo
+with `uv`).
 
 ## Quick start (your own data)
 

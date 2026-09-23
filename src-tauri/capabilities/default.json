@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The app's own splash page may drag the window. The service page gets the same, for its exact origin, at runtime.",
+  "windows": ["main"],
+  "permissions": ["core:window:allow-start-dragging"]
+}

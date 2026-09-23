@@ -172,3 +172,13 @@ def test_saved_layout_is_rechecked(lake):
     remember_reading(lake, replace(reading, skip_symbols=("Account Total", "NVDA")), raw, "X")
     again, errors = read_file(lake, raw, None)
     assert "NVDA" not in again.skip_symbols
+
+
+def test_touch_id_setting_round_trip_keeps_model_choice(tmp_path, monkeypatch):
+    from glassfolio.settings import choose_model, load_settings, set_touch_id
+    monkeypatch.setenv("GLASSFOLIO_HOME", str(tmp_path))
+    assert load_settings().require_touch_id is True
+    choose_model("http://127.0.0.1:1234/v1", "m")
+    set_touch_id(False)
+    s = load_settings()
+    assert s.require_touch_id is False and s.name == "m"

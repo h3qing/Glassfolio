@@ -278,3 +278,62 @@ read by a local model, with fixed code checking whatever it proposes.
   - It refuses to start without the flag, because an MCP client may be backed
     by a cloud model and the server can't tell (spec §7 red line).
   - It needs the lake to itself: stop `serve` first (DuckDB file lock).
+
+## Phase 6: desktop app (Tauri)
+
+- **Shape:**
+  - The Rust shell creates the window, applies native Liquid Glass through
+    `tauri-plugin-liquid-glass` (NSGlassEffectView on macOS 26, NSVisualEffectView
+    earlier), and runs the unlock sequence.
+  - The Python service is a child process; the webview loads its local URL, so the
+    web UI and its security guards are unchanged.
+  - The page is served with `data-shell="tauri"`. It then drops its own backdrop
+    blur and lets the native glass show through, with room for the traffic lights.
+- **Key transport:** the key goes to the service on stdin, never in argv or the
+  environment, which other processes can read. The app keeps stdin open, and the
+  service exits when it closes. Verified by force-killing the app (SIGKILL): the
+  service followed.
+- **Keychain:** the app uses the same item as the CLI (service `glassfolio`,
+  account `db-key`). Created on first launch with 32 random bytes; the recovery
+  key is shown once in a native dialog.
+- **Touch ID:** LocalAuthentication, device-owner policy (Touch ID or the Mac's
+  password), before the key is read. This is an app-enforced unlock, not hardware
+  binding: binding the Keychain item to biometrics needs a Developer ID–signed app
+  with a keychain access group. The switch lives in settings.json, so it deters
+  casual access, not someone who already controls your user account.
+- **Navigation lock:** the webview may load only its splash page and the service's
+  exact origin. The service page gets exactly one Tauri permission,
+  `core:window:allow-start-dragging`.
+- **Development builds only** honor `GLASSFOLIO_DB_KEY` (a test key on synthetic
+  data), like the CLI's tests. Release builds always use the Keychain.
+- **Packaging:**
+  - The service is a PyInstaller one-file binary (`glassfolio-server`) holding the
+    web UI, SQL, evaluation sets and synthetic demo data.
+  - The DuckLake extension ships as a Tauri resource, not through PyInstaller,
+    because re-signing it would break DuckDB's signature. The app never downloads
+    it.
+  - The DMG is made with `hdiutil`, because Tauri's DMG script needs Finder
+    automation.
+  - Size: the app is 74 MB, the DMG 54 MB.
+- **Hardening from security review:**
+  - The service binds its port *before* announcing it. The app accepts only
+    `http://127.0.0.1:<port>/?token=…` as the READY URL, and the window-drag
+    capability is granted at runtime for that exact origin, not
+    `127.0.0.1:*`.
+  - The app watches the service and closes, with a message, if the service
+    stops. Quitting closes the service's stdin first, then kills it after 3 s.
+  - The app embeds the bundled service's SHA-256 at build time and refuses to
+    hand the key to a different binary. The service gets an allowlisted
+    environment (no DYLD_*, no GLASSFOLIO_STATIC), and the packaged service
+    ignores GLASSFOLIO_STATIC.
+  - The Keychain item is added with add-only semantics (never overwritten). If
+    encrypted data exists but the key is missing, the app refuses to create a new
+    key and points to `glassfolio key restore`, which checks the recovery key
+    against the data before storing it.
+  - Touch ID fails closed. Only a Mac with no password skips the prompt.
+  - Residual: without Developer ID signing and hardened runtime, a program running
+    as you that can rewrite the whole app bundle can still get the key. The hash
+    check stops a swapped service binary, not a swapped app.
+- **Not done:** Developer ID signing and notarization (needs an Apple developer
+  account), auto-update, and Windows and Linux (the Keychain and Touch ID code is
+  macOS-only).

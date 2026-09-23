@@ -1,0 +1,11 @@
+html, body { margin: 0; height: 100%; background: transparent; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; color: #1b232b;
+  display: grid; place-items: center; -webkit-user-select: none; user-select: none; cursor: default;
+}
+main { text-align: center; }
+img { border-radius: 22px; box-shadow: 0 12px 36px rgba(16, 34, 52, .25); }
+h1 { font-size: 28px; font-weight: 700; letter-spacing: -.02em; margin: 18px 0 6px; }
+p { color: #4f5d6b; margin: 0; min-height: 1.4em; }
+p.error { color: #b3261e; max-width: 46ch; }
+@media (prefers-color-scheme: dark) { body { color: #eef2f6; } p { color: #aeb9c4; } p.error { color: #f07b72; } }

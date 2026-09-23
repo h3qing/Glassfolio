@@ -15,6 +15,7 @@ class ModelSettings:
     url: str = DEFAULT_URL
     name: str | None = None                       # None: no model chosen; heuristics only
     evals: dict = field(default_factory=dict)     # model name → last evaluation summary
+    require_touch_id: bool = True                 # desktop app: Touch ID (or password) to unlock
 
 
 def _path():
@@ -26,7 +27,8 @@ def load_settings() -> ModelSettings:
         raw = json.loads(_path().read_text())
     except (OSError, json.JSONDecodeError):
         return ModelSettings()
-    return ModelSettings(raw.get("url", DEFAULT_URL), raw.get("name"), raw.get("evals", {}))
+    return ModelSettings(raw.get("url", DEFAULT_URL), raw.get("name"), raw.get("evals", {}),
+                         raw.get("require_touch_id", True) is not False)
 
 
 def save_settings(settings: ModelSettings) -> ModelSettings:
@@ -43,6 +45,10 @@ def choose_model(url: str, name: str | None) -> ModelSettings:
 def record_eval(name: str, summary: dict) -> ModelSettings:
     current = load_settings()
     return save_settings(replace(current, evals={**current.evals, name: summary}))
+
+
+def set_touch_id(required: bool) -> ModelSettings:
+    return save_settings(replace(load_settings(), require_touch_id=bool(required)))
 
 
 def configured_model() -> OpenAICompatModel | None:

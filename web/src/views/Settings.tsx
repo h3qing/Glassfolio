@@ -47,6 +47,17 @@ export default function SettingsView() {
         <p className="faint" style={{ margin: "12px 6px 0", fontSize: 13 }}>Models with 8B parameters or more work best. Very small models (3B) usually fail the test; Glassfolio then falls back to its built-in rules, which you can correct by hand.</p>
         {error && <p className="error">{error}</p>}
       </section>
+      {document.documentElement.dataset.shell === "tauri" && (
+        <section className="sheet">
+          <h2 className="section-title">Unlocking</h2>
+          <label className="check" style={{ margin: "0 6px" }}>
+            <input type="checkbox" checked={info.require_touch_id}
+              onChange={(e) => api.setTouchId(e.target.checked).then(load).catch((x) => setError(x.message))} />
+            Ask for Touch ID (or your Mac's password) when Glassfolio opens
+          </label>
+          <p className="faint" style={{ margin: "10px 6px 0", fontSize: 13 }}>Your data stays encrypted either way; this adds a check before the app reads its key from the Keychain.</p>
+        </section>
+      )}
       {run && (
         <section className="sheet">
           <h2 className="section-title">{run.passed === run.total ? "✓" : "!"} {run.model}: {run.passed} of {run.total} sample files read correctly</h2>

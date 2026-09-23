@@ -36,6 +36,9 @@ glass on frames, near-solid sheets under numbers, tabular numerals).
   `uv run glassfolio eval-assistant [--model NAME]` (synthetic data only)
 - Any new assistant tool: read tools compute numbers in code/SQL; write tools only
   return proposals that the UI confirms.
+- Desktop: `cd src-tauri && cargo test` / `cargo tauri dev`; package with `./scripts/build_app.sh`.
+  Never launch a release build for testing: it uses the real Keychain. Dev builds accept
+  `GLASSFOLIO_HOME` + `GLASSFOLIO_DB_KEY` for synthetic data.
 - Web: `pnpm -C web build`, then `uv run glassfolio serve`; `./scripts/demo.sh --ui` for synthetic data.
 
 Formulas in spec §4 and checks in §11 need tests on the golden dataset, with

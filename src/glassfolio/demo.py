@@ -12,9 +12,10 @@ from glassfolio.broker_import import commit_statement, preview_statement
 from glassfolio.etf_import import commit_etf_holdings, preview_etf_holdings
 from glassfolio.lake import Lake
 from glassfolio.market_import import import_corporate_actions, import_prices
+from glassfolio.paths import resource_root
 from glassfolio.registry import add_account, add_owner, add_profile, set_proxy
 
-GOLDEN = Path(__file__).resolve().parents[2] / "tests" / "golden"
+GOLDEN = resource_root() / "tests" / "golden"
 D = date(2026, 9, 18)
 T1 = date(2026, 9, 30)
 

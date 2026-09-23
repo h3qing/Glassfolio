@@ -20,8 +20,48 @@ from glassfolio.parsing import printable
 ICONS = {"pass": "✓", "warn": "!", "fail": "✗"}
 
 
-def _lake() -> Lake:
-    return open_lake(data_home(), load_key())
+def _key_from_stdin() -> str:
+    """The desktop app passes the key on stdin (never argv or env, which other processes can read)."""
+    from glassfolio.keys import DbKeyError, validate_key
+
+    try:
+        return validate_key(sys.stdin.readline().strip())
+    except DbKeyError as exc:
+        sys.exit(f"error: {exc}")
+
+
+def verify_recovery_key(home: Path, text: str) -> str:
+    """Normalise a typed recovery key and prove it opens the data at `home`."""
+    import duckdb
+
+    from glassfolio.keys import DbKeyError, validate_key
+
+    key = validate_key("".join(text.split()).lower())
+    try:
+        open_lake(home, key).con.close()
+    except duckdb.Error:
+        raise DbKeyError("that key doesn't open the data in this folder") from None
+    return key
+
+
+def cmd_key_restore(args) -> None:
+    import getpass
+
+    from glassfolio.keys import DbKeyError, store_key
+
+    home = data_home()
+    if not (home / "catalog.duckdb").exists():
+        sys.exit(f"no Glassfolio data found at {home}")
+    try:
+        key = verify_recovery_key(home, getpass.getpass("Recovery key (input hidden): "))
+    except DbKeyError as exc:
+        sys.exit(f"error: {exc}")
+    store_key(key, replace_existing=args.replace)
+    print("The key is back in the Keychain; Glassfolio can open your data again.")
+
+
+def _lake(key: str | None = None) -> Lake:
+    return open_lake(data_home(), key or load_key())
 
 
 def _confirm(args, question: str) -> bool:
@@ -370,7 +410,8 @@ def cmd_mcp(args) -> None:
 def cmd_serve(args) -> None:
     from glassfolio.server.app import serve
 
-    serve(_lake(), args.port, open_browser=not args.no_browser)
+    key = _key_from_stdin() if args.key_stdin else None
+    serve(_lake(key), args.port, open_browser=not args.no_browser and not args.shell, shell=args.shell)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -425,6 +466,9 @@ def _parser() -> argparse.ArgumentParser:
         (("--reported-cost",), {"type": float}))
     add("ops", cmd_ops, (("--limit",), {"type": int, "default": 30}))
     add("restore", cmd_restore, (("op_id",), {}), yes)
+    key_cmd = sub.add_parser("key").add_subparsers(required=True)
+    add("restore", cmd_key_restore, (("--replace",), {"action": "store_true",
+        "help": "overwrite a different key already in the Keychain"}), parent=key_cmd)
     config = sub.add_parser("config").add_subparsers(required=True)
     add("tiingo", cmd_config_tiingo, parent=config)
     add("model", cmd_config_model, (("--url",), {"help": "OpenAI-compatible local server"}),
@@ -455,8 +499,10 @@ def _parser() -> argparse.ArgumentParser:
         (("--only",), {"nargs": "*", "help": "case ids to run"}))
     add("mcp", cmd_mcp, (("--client-is-local",), {"action": "store_true",
                                                     "help": "confirm the MCP client uses a model on this Mac"}))
-    add("serve", cmd_serve, (("--port",), {"type": int, "default": 8765}),
-        (("--no-browser",), {"action": "store_true"}))
+    add("serve", cmd_serve, (("--port",), {"type": int, "default": 8765, "help": "0 picks a free port"}),
+        (("--no-browser",), {"action": "store_true"}),
+        (("--key-stdin",), {"action": "store_true", "help": "read the database key from stdin (desktop app)"}),
+        (("--shell",), {"choices": ("tauri",), "help": "running inside the desktop app"}))
     return p
 
 

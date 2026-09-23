@@ -91,7 +91,7 @@ export interface Reading {
   fields: Record<FileKind, string[]>; errors: string[]; sample: string[][]; lines: string[];
 }
 export interface ModelInfo {
-  url: string; name: string | null; available: string[]; reachable: boolean;
+  url: string; name: string | null; available: string[]; reachable: boolean; require_touch_id: boolean;
   evals: Record<string, { passed: number; total: number; seconds: number; failed: string[] }>;
 }
 export interface EvalRun {
@@ -161,6 +161,7 @@ export const api = {
   chat: (message: string, history: { role: string; content: string }[]) => post<ChatTurn>("/api/chat", { message, history }),
   confirmAction: (action_id: string) => post<{ op_id: string }>("/api/chat/confirm", { action_id }),
   chooseModel: (url: string, name: string | null) => post("/api/assist/model", { url, name }),
+  setTouchId: (required: boolean) => post("/api/settings/touch-id", { required }),
   evaluate: () => post<EvalRun>("/api/assist/eval", {}),
   readFile: (file: File) => api.upload<Reading>("/api/assist/read", file, {}),
   previewReading: (body: Record<string, unknown>) => post<Record<string, any>>("/api/assist/preview", body),

@@ -78,7 +78,7 @@ export default function App() {
   return (
     <div className={`app${privacy ? " private" : ""}${chatOpen ? " with-chat" : ""}`}>
       <aside className="sidebar glass">
-        <div className="brand"><Logo /> Glassfolio</div>
+        <div className="brand" data-tauri-drag-region><Logo /> Glassfolio</div>
         <nav className="nav" aria-label="Views">
           {VIEWS.map((v) => (
             <button key={v.id} aria-current={view === v.id ? "page" : undefined} onClick={() => setView(v.id)}>
@@ -103,8 +103,8 @@ export default function App() {
         )}
       </aside>
       <div className="main">
-        <header className="toolbar">
-          <h1>{title}</h1>
+        <header className="toolbar" data-tauri-drag-region>
+          <h1 data-tauri-drag-region>{title}</h1>
           {(view === "exposure" || view === "changes") && (
             <div className="capsule-group glass">
               <Segmented label="Values" value={basis} onChange={setBasis}

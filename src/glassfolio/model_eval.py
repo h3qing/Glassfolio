@@ -12,9 +12,10 @@ from datetime import date
 from pathlib import Path
 
 from glassfolio.llm import ChatModel, ModelError
+from glassfolio.paths import resource_root
 from glassfolio.understand import Reading, read_heuristic, read_with_model, validate
 
-EVALS = Path(__file__).resolve().parents[2] / "evals"
+EVALS = resource_root() / "evals"
 
 
 @dataclass(frozen=True)

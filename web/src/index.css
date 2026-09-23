@@ -336,3 +336,14 @@ tr.clickable:hover + tr td, tr.selected + tr td { border-top-color: transparent;
   .app.with-chat { grid-template-columns: 264px 1fr; }
   .chat { position: fixed; right: 10px; top: 10px; width: min(380px, calc(100vw - 20px)); margin: 0; }
 }
+
+/* ---- inside the desktop app: native Liquid Glass fills the window behind the page ---- */
+html[data-shell="tauri"], html[data-shell="tauri"] body { background: transparent; }
+html[data-shell="tauri"] .glass {
+  /* the real glass is native; keep only a faint tint, the rim and the float shadow */
+  background: color-mix(in srgb, var(--glass-tint) 45%, transparent);
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+html[data-shell="tauri"] .sidebar { padding-top: 52px; }            /* room for the traffic lights */
+html[data-shell="tauri"] .toolbar { padding-top: 14px; }
+html[data-shell="tauri"] .sheet { box-shadow: 0 1px 2px rgba(16,34,52,.08), 0 10px 30px -18px rgba(16,34,52,.35); }

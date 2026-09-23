@@ -24,3 +24,9 @@ data/
 .env.*
 
 .DS_Store
+
+# desktop app build outputs
+build/
+src-tauri/target/
+src-tauri/binaries/
+src-tauri/gen/
