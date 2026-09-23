@@ -56,8 +56,10 @@ def test_lines_conserve_portfolio_value(golden):
 
 def test_uses_close_not_export_price_for_analysis(golden):
     lake, _ = golden
-    qqq = [l for l in exposure_lines(lake, D) if l.kind == "position" and l.shares == 100]
-    assert qqq[0].price == pytest.approx(50.0)  # export said 50.10
+    (qqq_id,) = lake.con.execute("SELECT DISTINCT security_id FROM securities "
+                                 "WHERE ticker = 'QQQ'").fetchone()
+    (qqq,) = [l for l in exposure_lines(lake, D) if l.kind == "position" and l.security_id == qqq_id]
+    assert qqq.price == pytest.approx(50.0)  # export said 50.10
 
 
 def test_holdings_version_follows_as_of_date(golden):

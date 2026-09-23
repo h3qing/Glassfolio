@@ -10,7 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from glassfolio.lake import Lake, OpMeta, RowCounts, run_write, utc_now
-from glassfolio.parsing import cell, clean, file_hash, parse_number, read_rows
+from glassfolio.parsing import cell, clean, file_hash, parse_number, read_rows, read_source
 from glassfolio.registry import find_account, load_profile
 from glassfolio.securities import Security, ensure_securities, load_securities, resolve
 
@@ -105,12 +105,12 @@ def _already_imported(con, digest: str) -> bool:
 
 
 def preview_statement(
-    lake: Lake, path: Path, account: str, profile_id: str, as_of: date
+    lake: Lake, source: Path | bytes, account: str, profile_id: str, as_of: date
 ) -> StatementPreview:
     acct = find_account(lake.con, account)
     if acct is None:
         raise ValueError(f"unknown account: {account}")
-    raw = path.read_bytes()
+    raw = read_source(source)
     digest = file_hash(raw)
     rows = parse_statement(raw.decode("utf-8-sig"), load_profile(lake.con, profile_id))
     if not any(r.is_cash for r in rows):

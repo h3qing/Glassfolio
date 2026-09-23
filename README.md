@@ -8,9 +8,10 @@ answers "how much NVDA do I actually own?" by looking through every fund down to
 companies, reconciling against your broker totals, and keeping all data on your
 machine, encrypted.
 
-> Status: **Phase 1 (MVP)**: encrypted storage, statement and ETF-holdings import,
-> look-through exposure, reconciliation, and an audited write log with restore. A CLI
-> for now; the local AI assistant and desktop app come in later phases
+> Status: phases 1–2, plus an early local web UI. Encrypted storage, statement and
+> ETF-holdings import, look-through exposure sliced by person, account type and
+> broker, reconciliation, and an audited write log with restore. The local AI
+> assistant and the Tauri desktop app come later
 > ([roadmap](docs/SPEC.md#12-路线图)).
 
 ## Try it (synthetic data, 30 seconds)
@@ -20,6 +21,12 @@ Requires macOS and [uv](https://docs.astral.sh/uv/).
 ```bash
 git clone https://github.com/h3qing/Glassfolio && cd Glassfolio
 ./scripts/demo.sh
+```
+
+Add `--ui` to open the web UI on the same data (needs Node and pnpm to build it once):
+
+```bash
+./scripts/demo.sh --ui
 ```
 
 This loads the [golden test portfolio](tests/golden/README.md) into a throwaway
@@ -42,7 +49,12 @@ uv run glassfolio import prices closes.csv                 # date,ticker,close
 uv run glassfolio exposure --ticker NVDA --group-by fund
 uv run glassfolio check --account "Schwab Taxable" --reported-total 123456.78
 uv run glassfolio ops                                      # audit log;  `restore <op_id>` rolls back
+uv run glassfolio serve                                    # web UI (build once: pnpm -C web install && pnpm -C web build)
 ```
+
+`serve` listens on 127.0.0.1 only and prints a one-time link. API calls need the
+session cookie set by that link, a known Host header (to block DNS rebinding) and a
+same-origin request, so other websites open in your browser can't read your data.
 
 A column mapping is configuration, never code. See
 [`tests/golden/broker_profile.json`](tests/golden/broker_profile.json):

@@ -10,7 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from glassfolio.lake import Lake, OpMeta, RowCounts, insert_rows, run_write
-from glassfolio.parsing import cell, clean, parse_number, printable, read_rows
+from glassfolio.parsing import cell, clean, parse_number, printable, read_rows, read_source
 from glassfolio.securities import Security, load_securities, resolve
 
 CA_TYPES = ("split", "dividend")
@@ -24,8 +24,8 @@ class MarketRow:
     value: Decimal
 
 
-def _read(path: Path, value_col: str, kind_col: str | None) -> tuple[MarketRow, ...]:
-    rows = read_rows(path.read_text(encoding="utf-8-sig"))
+def _read(source: Path | bytes, value_col: str, kind_col: str | None) -> tuple[MarketRow, ...]:
+    rows = read_rows(read_source(source).decode("utf-8-sig"))
     header = tuple(h.strip().lower() for h in rows[0])
     missing = [c for c in ("date", "ticker", value_col, kind_col) if c and c not in header]
     if missing:
@@ -51,7 +51,7 @@ def _resolve_all(lake: Lake, rows: tuple[MarketRow, ...]) -> dict[str, str]:
     return {t: s.security_id for t, s in found.items()}
 
 
-def import_prices(lake: Lake, path: Path, source: str = "manual", actor: str = "user") -> str:
+def import_prices(lake: Lake, path: Path | bytes, source: str = "manual", actor: str = "user") -> str:
     """CSV columns: date,ticker,close."""
     rows = _read(path, "close", None)
     ids = _resolve_all(lake, rows)
@@ -65,7 +65,7 @@ def import_prices(lake: Lake, path: Path, source: str = "manual", actor: str = "
     return run_write(lake, OpMeta(actor, "import_prices", params, "import closes"), work)[1]
 
 
-def import_corporate_actions(lake: Lake, path: Path, actor: str = "user") -> str:
+def import_corporate_actions(lake: Lake, path: Path | bytes, actor: str = "user") -> str:
     """CSV columns: date,ticker,type,ratio_or_amount. A 2:1 split has ratio 2."""
     rows = _read(path, "ratio_or_amount", "type")
     bad = sorted({r.kind for r in rows} - set(CA_TYPES))

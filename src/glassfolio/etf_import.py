@@ -10,7 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from glassfolio.lake import Lake, OpMeta, RowCounts, insert_rows, run_write, utc_now
-from glassfolio.parsing import cell, clean, file_hash, parse_number, read_rows
+from glassfolio.parsing import cell, clean, file_hash, parse_number, read_rows, read_source
 from glassfolio.securities import Security, ensure_securities, load_securities, resolve
 
 WEIGHT_RANGE = (0.95, 1.05)
@@ -163,12 +163,12 @@ def _gate_errors(con, etf_ticker: str, holdings: HoldingsFile, digest: str) -> t
 
 
 def preview_etf_holdings(
-    lake: Lake, path: Path, etf_ticker: str, fmt: str,
+    lake: Lake, source: Path | bytes, etf_ticker: str, fmt: str,
     as_of: date | None = None, shares_outstanding: Decimal | None = None,
 ) -> EtfPreview:
     if fmt not in FORMATS:
         raise ValueError(f"format must be one of {FORMATS}")
-    raw = path.read_bytes()
+    raw = read_source(source)
     text = raw.decode("utf-8-sig")
     if fmt == "ishares":
         holdings = parse_ishares(text)

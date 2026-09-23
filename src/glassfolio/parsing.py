@@ -5,10 +5,16 @@ import hashlib
 import io
 import re
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 
 _EMPTY = {"", "-", "--", "n/a", "N/A"}
 _STRIP = re.compile(r"[$,%\s]")
 MAX_ABS = Decimal(10) ** 15
+
+
+def read_source(source: "Path | bytes") -> bytes:
+    """Accept a file path (CLI) or uploaded bytes (web), never writing a temp file."""
+    return source if isinstance(source, bytes) else Path(source).read_bytes()
 
 
 def file_hash(content: bytes) -> str:

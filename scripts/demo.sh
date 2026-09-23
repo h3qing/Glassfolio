@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Try Glassfolio on the synthetic golden portfolio. Uses a throwaway database
 # and a throwaway key; never touches your Keychain or real data.
+#   ./scripts/demo.sh         print results in the terminal
+#   ./scripts/demo.sh --ui    open the web UI on the demo data
 set -euo pipefail
 cd "$(dirname "$0")/.."
 G=tests/golden
@@ -18,11 +20,17 @@ for d in 2026-08-31 2026-09-17 2026-09-25; do
 done
 gf import etf $G/etf_vti.csv --etf VTI --as-of 2026-09-17 -y >/dev/null
 gf import etf $G/etf_gfof_ishares.csv --etf GFOF --format ishares -y >/dev/null
-gf import statement $G/broker_alice_taxable.csv --account "Alice Taxable" --profile "$PROFILE" --as-of 2026-09-18 -y
+gf import statement $G/broker_alice_taxable.csv --account "Alice Taxable" --profile "$PROFILE" --as-of 2026-09-18 -y >/dev/null
 gf import statement $G/broker_alice_roth.csv --account "Alice Roth" --profile "$PROFILE" --as-of 2026-09-12 -y >/dev/null
 gf import prices $G/prices.csv >/dev/null
 gf import actions $G/corporate_actions.csv >/dev/null
 gf proxy GCIT VTI >/dev/null
+
+if [[ "${1:-}" == "--ui" ]]; then
+  [[ -f web/dist/index.html ]] || (cd web && pnpm install --silent && pnpm build >/dev/null)
+  shift
+  exec uv run --quiet glassfolio serve "$@"
+fi
 
 echo; echo "== All companies, 2026-09-18 =="; gf exposure --as-of 2026-09-18
 echo; echo "== NVDA by fund =="; gf exposure --ticker NVDA --group-by fund --as-of 2026-09-18

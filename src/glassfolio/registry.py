@@ -128,3 +128,35 @@ def set_proxy(lake: Lake, ticker: str, proxy_ticker: str, actor: str = "user") -
                                        "proxy_security_id": proxy.security_id},
                   "map fund to index proxy")
     run_write(lake, meta, work)
+
+
+@dataclass(frozen=True)
+class AccountInfo:
+    nickname: str
+    owner: str
+    account_type: str
+    broker: str
+    currency: str
+    latest_statement: object  # date | None
+
+
+def list_accounts(con: duckdb.DuckDBPyConnection) -> tuple[AccountInfo, ...]:
+    rows = con.execute(f"""
+        SELECT a.nickname, o.nickname, a.account_type, a.broker, a.currency,
+            (SELECT max(f.as_of_date) FROM import_files f
+             WHERE f.account_id = a.account_id AND f.kind = 'statement' AND f.status = 'imported')
+        FROM ({_latest('accounts', 'account_id')}) a
+        LEFT JOIN ({_latest('owners', 'owner_id')}) o USING (owner_id)
+        ORDER BY 2, 1""").fetchall()
+    return tuple(AccountInfo(*r) for r in rows)
+
+
+def list_owners(con: duckdb.DuckDBPyConnection) -> tuple[str, ...]:
+    rows = con.execute(f"SELECT nickname FROM ({_latest('owners', 'owner_id')}) ORDER BY 1")
+    return tuple(r[0] for r in rows.fetchall())
+
+
+def list_profiles(con: duckdb.DuckDBPyConnection) -> tuple[tuple[str, str], ...]:
+    """(profile_id, broker), newest first."""
+    rows = con.execute("SELECT profile_id, broker FROM import_profiles ORDER BY confirmed_at DESC")
+    return tuple((r[0], r[1]) for r in rows.fetchall())

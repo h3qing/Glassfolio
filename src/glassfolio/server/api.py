@@ -1,0 +1,179 @@
+"""JSON API handlers. Reads are free; writes go preview → commit."""
+
+import json
+from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
+
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+from glassfolio import broker_import, etf_import, market_import, recon, registry
+from glassfolio.exposure import Slice, company_exposure, portfolio_summary
+from glassfolio.lake import Lake, list_ops, new_id
+from glassfolio.server.serialize import to_json
+
+MAX_UPLOAD = 20 * 1024 * 1024
+
+
+@dataclass(frozen=True)
+class Pending:
+    kind: str  # statement | etf
+    preview: object
+
+
+class Api:
+    """Holds the lake and previews awaiting confirmation (in memory only)."""
+
+    def __init__(self, lake: Lake):
+        self.lake = lake
+        self.pending: dict[str, Pending] = {}
+
+    # ---- reads -------------------------------------------------------------
+    def _as_of(self, request: Request) -> date:
+        raw = request.query_params.get("as_of")
+        return date.fromisoformat(raw) if raw else self.default_as_of()
+
+    def default_as_of(self) -> date:
+        row = self.lake.con.execute(
+            "SELECT max(as_of_date) FROM import_files WHERE kind = 'statement'").fetchone()
+        return row[0] or date.today()
+
+    @staticmethod
+    def _slice(request: Request) -> Slice:
+        q = request.query_params
+        return Slice(q.get("owner") or None, q.get("account_type") or None,
+                     q.get("broker") or None, q.get("account") or None)
+
+    async def meta(self, request: Request) -> JSONResponse:
+        con = self.lake.con
+        dates = con.execute("SELECT DISTINCT as_of_date FROM import_files "
+                            "WHERE kind = 'statement' ORDER BY 1 DESC").fetchall()
+        accounts = registry.list_accounts(con)
+        return JSONResponse(to_json({
+            "owners": registry.list_owners(con),
+            "accounts": accounts,
+            "account_types": registry.ACCOUNT_TYPES,
+            "brokers": sorted({a.broker for a in accounts}),
+            "profiles": [{"profile_id": p, "broker": b} for p, b in registry.list_profiles(con)],
+            "statement_dates": [d[0] for d in dates],
+            "default_as_of": self.default_as_of(),
+        }))
+
+    async def exposure(self, request: Request) -> JSONResponse:
+        as_of, slice_ = self._as_of(request), self._slice(request)
+        summary = portfolio_summary(self.lake, as_of, slice_)
+        companies = company_exposure(self.lake, as_of, slice_=slice_)
+        return JSONResponse(to_json({"as_of": as_of, "summary": summary,
+                                     "companies": companies}))
+
+    async def company(self, request: Request) -> JSONResponse:
+        as_of, slice_ = self._as_of(request), self._slice(request)
+        ticker = request.path_params["ticker"]
+        by = {g: company_exposure(self.lake, as_of, ticker, g, slice_)
+              for g in ("fund", "account", "owner")}
+        return JSONResponse(to_json({"as_of": as_of, "ticker": ticker, **by}))
+
+    async def checks(self, request: Request) -> JSONResponse:
+        rows = self.lake.con.execute("""
+            SELECT r.scope, a.nickname, r.check_type, r.as_of_date, r.expected, r.actual,
+                   r.diff, r.status, r.hint, r.run_at
+            FROM recon_results r
+            LEFT JOIN (SELECT DISTINCT account_id, nickname FROM accounts) a
+              ON r.scope = 'account:' || a.account_id
+            QUALIFY r.run_at = max(r.run_at) OVER (PARTITION BY r.scope)
+            ORDER BY r.run_at DESC""").fetchall()
+        keys = ("scope", "account", "check_type", "as_of", "expected", "actual", "diff",
+                "status", "hint", "run_at")
+        return JSONResponse(to_json([dict(zip(keys, r)) for r in rows]))
+
+    async def ops(self, request: Request) -> JSONResponse:
+        return JSONResponse(to_json(list_ops(self.lake, 100)))
+
+    # ---- writes ------------------------------------------------------------
+    async def run_checks(self, request: Request) -> JSONResponse:
+        body = await request.json()
+        account_id = None
+        if body.get("account"):
+            acct = registry.find_account(self.lake.con, body["account"])
+            if acct is None:
+                raise ValueError(f"unknown account: {body['account']}")
+            account_id = acct.account_id
+        report = recon.run_checks(
+            self.lake, date.fromisoformat(body["as_of"]), account_id,
+            _opt_float(body.get("reported_total")), _opt_float(body.get("reported_cost")))
+        return JSONResponse(to_json(report))
+
+    async def add_owner(self, request: Request) -> JSONResponse:
+        body = await request.json()
+        return JSONResponse({"owner_id": registry.add_owner(self.lake, body["nickname"])})
+
+    async def add_account(self, request: Request) -> JSONResponse:
+        b = await request.json()
+        account_id = registry.add_account(self.lake, b["nickname"], b["owner"], b["broker"],
+                                          b["account_type"])
+        return JSONResponse({"account_id": account_id})
+
+    async def add_profile(self, request: Request) -> JSONResponse:
+        b = await request.json()
+        mapping = json.loads(b["mapping"]) if isinstance(b["mapping"], str) else b["mapping"]
+        return JSONResponse({"profile_id": registry.add_profile(self.lake, b["broker"], mapping)})
+
+    async def preview_statement(self, request: Request) -> JSONResponse:
+        form, raw = await _upload(request)
+        p = broker_import.preview_statement(self.lake, raw, form["account"], form["profile_id"],
+                                            date.fromisoformat(form["as_of"]))
+        return self._hold("statement", p, {
+            "rows": [{"symbol": m.row.symbol, "description": m.row.description,
+                      "master_name": m.master_name, "status": m.status,
+                      "shares": m.row.shares, "price": m.row.price,
+                      "market_value": m.row.market_value} for m in p.matches],
+            "total_value": p.total_value, "duplicate": p.duplicate, "as_of": p.as_of,
+            "errors": ["this file was already imported"] if p.duplicate else []})
+
+    async def preview_etf(self, request: Request) -> JSONResponse:
+        form, raw = await _upload(request)
+        as_of = date.fromisoformat(form["as_of"]) if form.get("as_of") else None
+        outstanding = Decimal(form["shares_outstanding"]) if form.get("shares_outstanding") else None
+        p = etf_import.preview_etf_holdings(self.lake, raw, form["etf"], form.get("format") or
+                                            "generic", as_of, outstanding)
+        h = p.holdings
+        return self._hold("etf", p, {
+            "etf": p.etf_ticker, "as_of": h.as_of, "count": len(h.rows),
+            "weight_sum": sum(r.weight or 0 for r in h.rows),
+            "shares_outstanding": h.shares_outstanding, "errors": p.errors,
+            "top": [{"ticker": r.ticker, "name": r.name, "weight": r.weight}
+                    for r in sorted(h.rows, key=lambda r: -(r.weight or 0))[:10]]})
+
+    def _hold(self, kind: str, preview, payload: dict) -> JSONResponse:
+        token = new_id("pv")
+        self.pending[token] = Pending(kind, preview)
+        return JSONResponse(to_json({"token": token, **payload}))
+
+    async def commit(self, request: Request) -> JSONResponse:
+        token = (await request.json())["token"]
+        pending = self.pending.pop(token, None)
+        if pending is None:
+            raise ValueError("preview expired; upload the file again")
+        commit = (broker_import.commit_statement if pending.kind == "statement"
+                  else etf_import.commit_etf_holdings)
+        return JSONResponse({"op_id": commit(self.lake, pending.preview)})
+
+    async def import_prices(self, request: Request) -> JSONResponse:
+        _, raw = await _upload(request)
+        return JSONResponse({"op_id": market_import.import_prices(self.lake, raw)})
+
+
+def _opt_float(value) -> float | None:
+    return None if value in (None, "") else float(value)
+
+
+async def _upload(request: Request) -> tuple[dict, bytes]:
+    form = await request.form()
+    upload = form.get("file")
+    if upload is None:
+        raise ValueError("no file uploaded")
+    raw = await upload.read()
+    if len(raw) > MAX_UPLOAD:
+        raise ValueError("file is larger than 20 MB")
+    return {k: v for k, v in form.items() if isinstance(v, str)}, raw

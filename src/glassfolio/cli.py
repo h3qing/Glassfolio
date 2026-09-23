@@ -148,6 +148,12 @@ def cmd_restore(args) -> None:
         print(restore(_lake(), args.op_id))
 
 
+def cmd_serve(args) -> None:
+    from glassfolio.server.app import serve
+
+    serve(_lake(), args.port, open_browser=not args.no_browser)
+
+
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="glassfolio", description="See through your portfolio.")
     sub = p.add_subparsers(dest="command", required=True)
@@ -190,6 +196,8 @@ def _parser() -> argparse.ArgumentParser:
         (("--reported-cost",), {"type": float}))
     add("ops", cmd_ops, (("--limit",), {"type": int, "default": 30}))
     add("restore", cmd_restore, (("op_id",), {}), yes)
+    add("serve", cmd_serve, (("--port",), {"type": int, "default": 8765}),
+        (("--no-browser",), {"action": "store_true"}))
     return p
 
 
