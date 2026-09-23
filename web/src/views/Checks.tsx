@@ -46,7 +46,7 @@ export default function ChecksView({ meta, asOf }: { meta: Meta; asOf: string })
           api.runChecks({ as_of: asOf, ...form }).then((r) => { setReport(r); setError(null); }).catch((x) => setError(x.message));
         }}>
           <label className="field">Account
-            <select value={form.account} onChange={(e) => setForm({ ...form, account: e.target.value })}>
+            <select className="select" value={form.account} onChange={(e) => setForm({ ...form, account: e.target.value })}>
               <option value="">Whole portfolio</option>
               {meta.accounts.map((a) => <option key={a.nickname}>{a.nickname}</option>)}
             </select>

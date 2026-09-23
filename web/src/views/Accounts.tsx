@@ -43,13 +43,13 @@ export default function AccountsView({ meta, onChange }: { meta: Meta; onChange:
         }}>
           <label className="field">Nickname<input value={acct.nickname} onChange={(e) => setAcct({ ...acct, nickname: e.target.value })} placeholder="Schwab taxable" required /></label>
           <label className="field">Person
-            <select value={acct.owner} onChange={(e) => setAcct({ ...acct, owner: e.target.value })} required>
+            <select className="select" value={acct.owner} onChange={(e) => setAcct({ ...acct, owner: e.target.value })} required>
               <option value="" disabled>Choose…</option>
               {meta.owners.map((o) => <option key={o}>{o}</option>)}
             </select>
           </label>
           <label className="field">Type
-            <select value={acct.account_type} onChange={(e) => setAcct({ ...acct, account_type: e.target.value })}>
+            <select className="select" value={acct.account_type} onChange={(e) => setAcct({ ...acct, account_type: e.target.value })}>
               {meta.account_types.map((t) => <option key={t} value={t}>{accountTypeLabel[t] ?? t}</option>)}
             </select>
           </label>

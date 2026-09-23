@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type Meta, type Slice } from "./api";
 import { accountTypeLabel } from "./format";
+import { Icon } from "./icons";
 import ExposureView from "./views/Exposure";
 import AccountsView from "./views/Accounts";
 import ChecksView from "./views/Checks";
@@ -10,13 +11,13 @@ import ChangesView from "./views/Changes";
 import InboxView from "./views/Inbox";
 
 const VIEWS = [
-  { id: "exposure", label: "What you own" },
-  { id: "changes", label: "What changed" },
-  { id: "inbox", label: "Questions" },
-  { id: "accounts", label: "Accounts" },
-  { id: "import", label: "Import" },
-  { id: "checks", label: "Reconcile" },
-  { id: "activity", label: "Activity" },
+  { id: "exposure", label: "What you own", icon: "own" },
+  { id: "changes", label: "What changed", icon: "changes" },
+  { id: "inbox", label: "Questions", icon: "questions" },
+  { id: "accounts", label: "Accounts", icon: "accounts" },
+  { id: "import", label: "Import", icon: "import" },
+  { id: "checks", label: "Reconcile", icon: "reconcile" },
+  { id: "activity", label: "Activity", icon: "activity" },
 ] as const;
 type ViewId = (typeof VIEWS)[number]["id"];
 
@@ -36,7 +37,7 @@ function Select({ label, value, options, onChange }: {
   return (
     <label className="field">
       {label}
-      <select value={value} onChange={(e) => onChange(e.target.value)}>
+      <select className="select" value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">Everyone / all</option>
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
@@ -64,7 +65,7 @@ export default function App() {
   const title = VIEWS.find((v) => v.id === view)!.label;
 
   if (error && !meta) {
-    return <main className="sheet" style={{ margin: 40 }}><p className="error">{error}</p></main>;
+    return <main className="sheet" style={{ margin: 40 }}><p className="error" style={{ margin: 6 }}>{error}</p></main>;
   }
   return (
     <div className={`app${privacy ? " private" : ""}`}>
@@ -73,6 +74,7 @@ export default function App() {
         <nav className="nav" aria-label="Views">
           {VIEWS.map((v) => (
             <button key={v.id} aria-current={view === v.id ? "page" : undefined} onClick={() => setView(v.id)}>
+              <Icon name={v.icon} />
               {v.label}
               {v.id === "inbox" && questions > 0 && <span className="badge" aria-label={`${questions} open`}>{questions}</span>}
             </button>
@@ -93,15 +95,20 @@ export default function App() {
         )}
       </aside>
       <div className="main">
-        <header className="toolbar glass">
+        <header className="toolbar">
           <h1>{title}</h1>
-          <label className="field">
-            As of
-            <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
-          </label>
-          <button className="btn" aria-pressed={privacy} onClick={() => setPrivacy((p) => !p)}>
-            {privacy ? "Show amounts" : "Hide amounts"}
-          </button>
+          <div className="capsule-group glass">
+            <label className="field">
+              <Icon name="calendar" size={16} />
+              <span className="hide-narrow">As of</span>
+              <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} aria-label="As of date" />
+            </label>
+            <span className="divider" aria-hidden />
+            <button className="icon-btn" aria-pressed={privacy} onClick={() => setPrivacy((p) => !p)}
+              aria-label={privacy ? "Show amounts" : "Hide amounts"} title={privacy ? "Show amounts" : "Hide amounts"}>
+              <Icon name={privacy ? "eyeOff" : "eye"} />
+            </button>
+          </div>
         </header>
         {meta && asOf && view === "exposure" && <ExposureView asOf={asOf} slice={slice} onImport={() => setView("import")} />}
         {meta && asOf && view === "changes" && <ChangesView key={asOf} asOf={asOf} slice={slice} statementDates={meta.statement_dates} onInbox={() => setView("inbox")} />}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, type Meta } from "../api";
 import { Amount, fmtPct } from "../format";
+import { Segmented } from "../Segmented";
 
 type Kind = "statement" | "etf" | "prices";
 const KINDS: { id: Kind; label: string; hint: string }[] = [
@@ -80,25 +81,21 @@ export default function ImportView({ meta, asOf, onDone }: { meta: Meta; asOf: s
   return (
     <>
       <section className="sheet">
-        <div className="row" role="tablist" style={{ marginBottom: 14 }}>
-          {KINDS.map((k) => (
-            <button key={k.id} role="tab" aria-selected={kind === k.id} className={`btn${kind === k.id ? " primary" : ""}`}
-              onClick={() => { setKind(k.id); reset(); }}>{k.label}</button>
-          ))}
-        </div>
-        <p className="muted" style={{ marginTop: 0 }}>{KINDS.find((k) => k.id === kind)!.hint}</p>
+        <Segmented label="What to import" value={kind} options={KINDS.map(({ id, label }) => ({ id, label }))}
+          onChange={(k) => { setKind(k); reset(); }} />
+        <p className="muted" style={{ margin: "14px 6px" }}>{KINDS.find((k) => k.id === kind)!.hint}</p>
         <DropZone file={file} onFile={(x) => { setFile(x); setPreview(null); }} />
         <div className="row" style={{ marginTop: 14 }}>
           {kind === "statement" && <>
-            <label className="field">Account<select value={f.account} onChange={set("account")}>{meta.accounts.map((a) => <option key={a.nickname}>{a.nickname}</option>)}</select></label>
-            <label className="field">Column mapping<select value={f.profile_id} onChange={set("profile_id")}>
+            <label className="field">Account<select className="select" value={f.account} onChange={set("account")}>{meta.accounts.map((a) => <option key={a.nickname}>{a.nickname}</option>)}</select></label>
+            <label className="field">Column mapping<select className="select" value={f.profile_id} onChange={set("profile_id")}>
               <option value="">Choose…</option>
               {meta.profiles.map((p) => <option key={p.profile_id} value={p.profile_id}>{p.broker} ({p.profile_id.slice(-6)})</option>)}
             </select></label>
           </>}
           {kind === "etf" && <>
             <label className="field">Fund ticker<input value={f.etf} onChange={set("etf")} placeholder="QQQ" required /></label>
-            <label className="field">Format<select value={f.format} onChange={set("format")}><option value="generic">Generic columns</option><option value="ishares">iShares</option></select></label>
+            <label className="field">Format<select className="select" value={f.format} onChange={set("format")}><option value="generic">Generic columns</option><option value="ishares">iShares</option></select></label>
             {f.format === "generic" && <label className="field">Fund shares outstanding<input inputMode="decimal" value={f.shares_outstanding} onChange={set("shares_outstanding")} placeholder="optional" /></label>}
           </>}
           {kind !== "prices" && !(kind === "etf" && f.format === "ishares") &&
