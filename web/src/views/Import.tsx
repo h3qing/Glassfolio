@@ -3,9 +3,10 @@ import { api, type Meta } from "../api";
 import { Amount, fmtPct } from "../format";
 import { Segmented } from "../Segmented";
 
-type Kind = "statement" | "etf" | "prices";
+type Kind = "statement" | "lots" | "etf" | "prices";
 const KINDS: { id: Kind; label: string; hint: string }[] = [
   { id: "statement", label: "Position statement", hint: "Your broker's positions export as CSV. It must include cash, cost basis and one row per holding." },
+  { id: "lots", label: "Lot details", hint: "Optional, for exact long- and short-term gains: CSV with columns symbol,acquired_date,shares,cost (cost is the lot's total). Without it, each person's assumption is used." },
   { id: "etf", label: "Fund holdings", hint: "The holdings file from the fund's own website. For iShares, choose iShares format; otherwise use columns ticker,name,asset_class,shares,weight,price,isin." },
   { id: "prices", label: "Closing prices", hint: "CSV with columns date,ticker,close." },
 ];
@@ -64,7 +65,10 @@ export default function ImportView({ meta, asOf, onDone }: { meta: Meta; asOf: s
   const check = () => {
     if (!file) return;
     setMessage(null); setError(null);
-    if (kind === "prices") {
+    if (kind === "lots") {
+      api.upload<{ op_id: string }>("/api/import/lots", file, { account: f.account, as_of: f.as_of })
+        .then(() => { setMessage("Lot details imported."); reset(); onDone(); }).catch(fail);
+    } else if (kind === "prices") {
       api.upload<{ op_id: string }>("/api/import/prices", file, {}).then(() => { setMessage("Prices imported."); reset(); onDone(); }).catch(fail);
     } else if (kind === "statement") {
       api.upload<StatementPreview>("/api/import/statement", file, { account: f.account, profile_id: f.profile_id, as_of: f.as_of }).then(setPreview).catch(fail);
@@ -86,6 +90,7 @@ export default function ImportView({ meta, asOf, onDone }: { meta: Meta; asOf: s
         <p className="muted" style={{ margin: "14px 6px" }}>{KINDS.find((k) => k.id === kind)!.hint}</p>
         <DropZone file={file} onFile={(x) => { setFile(x); setPreview(null); }} />
         <div className="row" style={{ marginTop: 14 }}>
+          {kind === "lots" && <label className="field">Account<select className="select" value={f.account} onChange={set("account")}>{meta.accounts.map((a) => <option key={a.nickname}>{a.nickname}</option>)}</select></label>}
           {kind === "statement" && <>
             <label className="field">Account<select className="select" value={f.account} onChange={set("account")}>{meta.accounts.map((a) => <option key={a.nickname}>{a.nickname}</option>)}</select></label>
             <label className="field">Column mapping<select className="select" value={f.profile_id} onChange={set("profile_id")}>
@@ -100,7 +105,7 @@ export default function ImportView({ meta, asOf, onDone }: { meta: Meta; asOf: s
           </>}
           {kind !== "prices" && !(kind === "etf" && f.format === "ishares") &&
             <label className="field">As of<input type="date" value={f.as_of} onChange={set("as_of")} /></label>}
-          <button className="btn primary" disabled={!file} onClick={check}>{kind === "prices" ? "Import prices" : "Preview"}</button>
+          <button className="btn primary" disabled={!file} onClick={check}>{kind === "prices" ? "Import prices" : kind === "lots" ? "Import lots" : "Preview"}</button>
         </div>
         {error && <p className="error">{error}</p>}
         {message && <p className="status pass">✓ {message}</p>}

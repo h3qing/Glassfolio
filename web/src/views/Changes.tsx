@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type Attribution, type Changes, type Slice } from "../api";
+import { api, type Attribution, type Basis, type Changes, type Slice } from "../api";
 import { Amount, fmtPct } from "../format";
 
 // Validated categorical slots (dataviz validator, light + dark surfaces).
@@ -74,8 +74,8 @@ function defaultStart(asOf: string, statementDates: string[]): string {
   const d = new Date(asOf); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 10);
 }
 
-export default function ChangesView({ asOf, slice, statementDates, onInbox }: {
-  asOf: string; slice: Slice; statementDates: string[]; onInbox: () => void;
+export default function ChangesView({ asOf, slice, basis, statementDates, onInbox }: {
+  asOf: string; slice: Slice; basis: Basis; statementDates: string[]; onInbox: () => void;
 }) {
   const [start, setStart] = useState(() => defaultStart(asOf, statementDates));
   const [data, setData] = useState<Changes | null>(null);
@@ -102,7 +102,9 @@ export default function ChangesView({ asOf, slice, statementDates, onInbox }: {
               ? <div><dt>Money-weighted, per year</dt><dd className="num">{r.mwr == null ? "—" : fmtPct(r.mwr)}</dd></div>
               : <div><dt>Money-weighted</dt><dd className="num">{r.mwr_period == null ? "—" : fmtPct(r.mwr_period)}</dd></div>}
             <div><dt>You added</dt><dd className="num"><Amount value={r.net_flows} /></dd></div>
-            <div><dt>Value</dt><dd className="num"><Amount value={r.start_value} /> → <Amount value={r.end_value} /></dd></div>
+            {basis === "pre"
+              ? <div><dt>Value</dt><dd className="num"><Amount value={r.start_value} /> → <Amount value={r.end_value} /></dd></div>
+              : <div><dt>Value after tax</dt><dd className="num"><Amount value={data!.after_tax.start} /> → <Amount value={data!.after_tax.end} /></dd></div>}
           </dl>
         )}
         {r && r.open_questions > 0 && (
@@ -120,7 +122,7 @@ export default function ChangesView({ asOf, slice, statementDates, onInbox }: {
       </section>
       {data && (
         <section className="sheet">
-          <h2 className="section-title">Why each holding changed</h2>
+          <h2 className="section-title">Why each holding changed{basis === "after" && <span className="faint" style={{ fontWeight: 400, fontSize: 14 }}> (before tax)</span>}</h2>
           <div className="legend" style={{ marginTop: 0, marginBottom: 10 }}>
             {PARTS.map((p) => <span key={p.key}><i className="swatch" style={{ background: p.color }} /> {p.label}</span>)}
           </div>

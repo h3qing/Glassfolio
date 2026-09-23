@@ -73,3 +73,18 @@ CREATE TABLE IF NOT EXISTS fetch_log (
     fetch_id VARCHAR, source VARCHAR, target VARCHAR, started_at TIMESTAMP,
     status VARCHAR, error VARCHAR, raw_file_hash VARCHAR
 );
+-- Phase 4. Rates are planning assumptions, not tax advice.
+CREATE TABLE IF NOT EXISTS tax_profiles (
+    tax_profile_id VARCHAR, name VARCHAR, federal_ltcg_rate DOUBLE, federal_ordinary_rate DOUBLE,
+    niit BOOLEAN, state VARCHAR, state_rate DOUBLE, withdrawal_rate DOUBLE,
+    no_lot_assumption VARCHAR, count_losses BOOLEAN, created_at TIMESTAMP
+);
+-- Which profile applies to a person or an account (account wins), and an optional
+-- per-account tax treatment override (taxable / deferred / exempt). Latest row wins.
+CREATE TABLE IF NOT EXISTS tax_assignments (
+    scope VARCHAR, scope_id VARCHAR, tax_profile_id VARCHAR, treatment VARCHAR, created_at TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS position_lots (
+    account_id VARCHAR, security_id VARCHAR, acquired_date DATE, shares DECIMAL(24, 8),
+    cost DECIMAL(24, 8), as_of_date DATE, import_file_hash VARCHAR
+);

@@ -148,6 +148,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
   -webkit-mask: linear-gradient(#000 55%, transparent); mask: linear-gradient(#000 55%, transparent);
 }
 .toolbar h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.02em; margin: 0 auto 0 6px; }
+.capsule-group .segmented { background: transparent; border-color: transparent; }
+.capsule-group .segmented button { padding: 4px 14px; }
 .capsule-group { display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: var(--r-capsule); }
 .capsule-group .field { flex-direction: row; align-items: center; gap: 6px; padding: 0 4px 0 10px; color: var(--ink-2); }
 .capsule-group input[type="date"] { background: transparent; border: 0; padding: 4px 6px; font-variant-numeric: tabular-nums; }
@@ -250,6 +252,8 @@ tr.clickable:hover + tr td, tr.selected + tr td { border-top-color: transparent;
 .drawer td { padding: 8px 12px; }
 .section-title { font-size: 19px; font-weight: 650; letter-spacing: -0.01em; margin: 0 6px 14px; }
 
+.check { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); font-size: 14px; }
+.check input { width: 16px; height: 16px; accent-color: var(--accent); }
 .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
 .error { color: var(--fail); font-size: 14px; }
 .drop {

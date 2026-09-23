@@ -11,7 +11,7 @@ import duckdb
 from glassfolio.lake import Lake, OpMeta, RowCounts, new_id, run_write, utc_now
 from glassfolio.securities import Security, insert_security, load_securities, resolve
 
-ACCOUNT_TYPES = ("taxable", "traditional_ira", "roth_ira", "401k", "other")
+ACCOUNT_TYPES = ("taxable", "traditional_ira", "roth_ira", "401k", "hsa", "529", "other")
 
 
 @dataclass(frozen=True)

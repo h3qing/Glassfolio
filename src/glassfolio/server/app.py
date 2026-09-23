@@ -18,6 +18,7 @@ from starlette.formparsers import MultiPartParser
 
 from glassfolio.server.api import MAX_UPLOAD, Api
 from glassfolio.server.security import LocalGuard
+from glassfolio.server.tax_api import TaxApi
 
 STATIC = Path(__file__).resolve().parents[3] / "web" / "dist"
 # Keep uploads in memory: Starlette would otherwise spool files over 1 MB to $TMPDIR.
@@ -36,15 +37,18 @@ def _guarded(handler):
 
 def create_app(lake: Lake, token: str, allowed_hosts, static_dir: Path = STATIC) -> Starlette:
     api = Api(lake)
+    tax = TaxApi(lake, api.default_as_of)
     get = [("/api/meta", api.meta), ("/api/exposure", api.exposure),
            ("/api/company/{ticker}", api.company), ("/api/checks", api.checks),
            ("/api/ops", api.ops), ("/api/changes", api.changes), ("/api/history", api.history),
-           ("/api/inbox", api.inbox)]
+           ("/api/inbox", api.inbox), ("/api/taxes", tax.overview)]
     post = [("/api/checks", api.run_checks), ("/api/owners", api.add_owner),
             ("/api/accounts", api.add_account), ("/api/profiles", api.add_profile),
             ("/api/import/statement", api.preview_statement), ("/api/import/etf", api.preview_etf),
             ("/api/import/prices", api.import_prices), ("/api/import/commit", api.commit),
-            ("/api/inbox/answer", api.answer)]
+            ("/api/inbox/answer", api.answer), ("/api/tax/profile", tax.save_profile),
+            ("/api/tax/assign", tax.assign), ("/api/tax/treatment", tax.treatment),
+            ("/api/people", tax.add_person), ("/api/import/lots", tax.lots)]
     routes = [Route(p, _guarded(h), methods=["GET"]) for p, h in get]
     routes += [Route(p, _guarded(h), methods=["POST"]) for p, h in post]
     if (static_dir / "index.html").exists():

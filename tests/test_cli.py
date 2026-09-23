@@ -88,3 +88,15 @@ def test_phase3_commands(cli, tmp_path, monkeypatch):
                         lambda s, a: None if a == "tiingo-token" else TEST_KEY)
     out = cli("daily")
     assert "No Tiingo token" in out and "Snapshot for" in out
+
+
+def test_owner_with_state_and_taxes(cli):
+    cli("owner", "add", "tex", "--state", "TX", "--ordinary", "0.22")
+    cli("account", "add", "T", "--owner", "tex", "--broker", "G", "--type", "taxable")
+    profile = cli("profile", "add", "G", GOLDEN / "broker_profile.json").strip()
+    cli("import", "statement", GOLDEN / "broker_alice_taxable.csv", "--account", "T",
+        "--profile", profile, "--as-of", "2026-09-18", "-y")
+    out = cli("taxes", "--as-of", "2026-09-18")
+    assert "not tax advice" in out and "assumed" in out
+    with pytest.raises(SystemExit, match="bracket"):
+        cli("owner", "add", "newyorker", "--state", "NY")

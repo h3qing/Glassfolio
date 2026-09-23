@@ -14,6 +14,7 @@ const paths: Record<string, React.ReactNode> = {
   eyeOff: <><path d="M4.2 6.3C3 7.6 2.5 10 2.5 10s2.7 5.2 7.5 5.2c1.4 0 2.6-.4 3.6-1M8 5.1c.6-.2 1.3-.3 2-.3 4.8 0 7.5 5.2 7.5 5.2s-.6 1.2-1.8 2.5" {...P} /><path d="M3 3l14 14" {...P} /></>,
   calendar: <><rect x="3" y="4.5" width="14" height="12" rx="3" {...P} /><path d="M3 8.5h14M7 3v3M13 3v3" {...P} /></>,
   chevron: <path d="M6 8l4 4 4-4" {...P} />,
+  tax: <><rect x="4" y="2.8" width="12" height="14.4" rx="2.5" {...P} /><path d="M7.5 13l5-5M7.8 8.2h.01M12.2 12.8h.01" {...P} /></>,
 };
 
 export function Icon({ name, size = 18, label }: { name: keyof typeof paths | string; size?: number; label?: string }) {

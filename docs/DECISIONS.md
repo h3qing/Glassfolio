@@ -131,3 +131,42 @@ Choices made while building, including where the code departs from or refines
     with the token header.
 - **Scheduling** is left to the user (a launchd example is in the README). Glassfolio
   never installs system configuration by itself.
+
+## Phase 4: taxes
+
+Rates are planning assumptions, not tax advice. The UI says so wherever it shows tax.
+
+- **Treatment by account type:**
+  - Taxable accounts are taxable.
+  - Traditional IRA and 401(k) are tax-deferred (value × (1 − withdrawal rate)).
+  - Roth IRA, HSA and 529 are tax-exempt. HSA and 529 were added at the owner's
+    request, assuming qualified use.
+  - Any account can be overridden to taxable, deferred or exempt, which is how
+    special cases are marked tax-exempt.
+- **Profiles:** one per person, optionally overridden per account. The account's
+  profile wins, then the person's, then the built-in California default: federal
+  15% long-term and 24% ordinary, CA 9.3%, no NIIT. Effective rates:
+  - long-term = federal long-term + NIIT + state
+  - short-term = federal ordinary + NIIT + state
+  - withdrawal = federal ordinary + state, or an explicit override
+- **State dropdown when adding a person:**
+  - No-income-tax states and flat-tax states are prefilled.
+  - California is prefilled at the 9.3% bracket.
+  - Progressive states must be entered for your bracket, because no single
+    default would be honest.
+  - Rates are the 2025 figures as I know them. They are marked "check yours".
+- **Lots:** lots are used when their shares cover the position within 0.5%; held
+  for more than 365 days counts as long-term. Otherwise the person's assumption
+  applies: all short-term by default (conservative, as the owner asked), or all
+  long-term. A position with lots that don't match is flagged
+  "assumed (lots incomplete)".
+- **Losses** reduce tax by default (the spec's formula). A per-person switch turns
+  that off.
+- **Missing cost basis:** the gain is left out and flagged. It is not guessed.
+- **After-tax look-through:** each position's after-tax/pre-tax factor is applied
+  to every line held through it. So NVDA inside a taxable QQQ position bears
+  QQQ's tax, and NVDA inside a Roth doesn't.
+- **What-if:** overrides are applied on top of every profile and never saved.
+- **Attribution stays before tax.** After-tax attribution would mix tax changes
+  into the price effect. The What changed view shows after-tax start and end
+  values instead.

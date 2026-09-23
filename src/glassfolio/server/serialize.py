@@ -8,8 +8,8 @@ from decimal import Decimal
 def to_json(value):
     if is_dataclass(value) and not isinstance(value, type):
         out = {f.name: to_json(getattr(value, f.name)) for f in fields(value)}
-        extras = {name: to_json(getattr(value, name)) for name in ("total", "diff", "status", "change", "mwr_period")
-                  if isinstance(getattr(type(value), name, None), property)}
+        props = (name for name in dir(type(value)) if isinstance(getattr(type(value), name), property))
+        extras = {name: to_json(getattr(value, name)) for name in props}
         return {**out, **extras}
     if isinstance(value, (list, tuple, frozenset, set)):
         return [to_json(v) for v in value]

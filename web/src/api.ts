@@ -16,10 +16,12 @@ export interface Company {
   ticker: string | null; name: string | null; group: string | null;
   direct_value: number; via_fund_value: number; total: number;
   approx: boolean; missing_price: boolean;
+  after_tax?: number; direct_after_tax?: number; via_fund_after_tax?: number;
 }
 export interface Summary {
   total_value: number; cash_value: number; other_value: number;
   approx_value: number; missing_prices: number;
+  after_tax: number; tax: number; missing_cost: number;
 }
 export interface Exposure { as_of: string; summary: Summary; companies: Company[] }
 export interface CompanyDetail { ticker: string; fund: Company[]; account: Company[]; owner: Company[] }
@@ -47,7 +49,34 @@ export interface Attribution {
   price_effect: number; flow_effect: number; rebalance_effect: number; change: number; approx: boolean;
   missing_price: boolean;
 }
-export interface Changes { start: string; end: string; returns: Returns; companies: Attribution[] }
+export interface Changes {
+  start: string; end: string; returns: Returns; companies: Attribution[];
+  after_tax: { start: number; end: number };
+}
+export type Basis = "pre" | "after";
+export interface TaxProfile {
+  tax_profile_id: string | null; name: string; federal_ltcg_rate: number; federal_ordinary_rate: number;
+  niit: boolean; state: string; state_rate: number; withdrawal_rate: number | null;
+  no_lot_assumption: "short_term" | "long_term"; count_losses: boolean;
+  rates: { ltcg: number; stcg: number; withdrawal: number };
+}
+export interface StateDefault { code: string; name: string; rate: number | null; note: string; as_of: string }
+export interface AfterTaxTotals {
+  pre_tax: number; tax: number; after_tax: number; missing_cost: number;
+  by_treatment: Record<string, { pre_tax: number; tax: number }>;
+}
+export interface PositionTax {
+  account: string; ticker: string | null; treatment: string; value: number; cost: number | null;
+  lt_gain: number; st_gain: number; tax: number; after_tax: number; basis: string; profile: string;
+}
+export interface TaxOverview {
+  as_of: string; states: StateDefault[]; default_profile: TaxProfile; profiles: TaxProfile[];
+  people: { owner: string; profile_id: string | null }[];
+  accounts: { nickname: string; owner: string; account_type: string; default_treatment: string;
+    treatment: string | null; profile_id: string | null }[];
+  totals: AfterTaxTotals; what_if: AfterTaxTotals; positions: PositionTax[];
+}
+export type ScenarioQuery = Partial<Record<"ltcg" | "ordinary" | "state_rate" | "withdrawal" | "niit" | "assumption", string>>;
 export interface InboxItem {
   item_id: string; type: string; status: string; created_at: string;
   payload: Record<string, any>;
@@ -89,6 +118,12 @@ export const api = {
   answer: (body: { item_id: string; classification: string; pair?: string; remember?: boolean }) =>
     post<{ op_id: string }>("/api/inbox/answer", body),
   addOwner: (nickname: string) => post("/api/owners", { nickname }),
+  addPerson: (body: Record<string, unknown>) => post("/api/people", body),
+  taxes: (asOf: string, s: Slice, scenario: ScenarioQuery = {}) =>
+    call<TaxOverview>(`/api/taxes?${query({ as_of: asOf, ...s, ...scenario })}`),
+  saveProfile: (body: Record<string, unknown>) => post<{ tax_profile_id: string }>("/api/tax/profile", body),
+  assignProfile: (body: { profile_id: string | null; owner?: string; account?: string }) => post("/api/tax/assign", body),
+  setTreatment: (account: string, treatment: string | null) => post("/api/tax/treatment", { account, treatment }),
   addAccount: (a: { nickname: string; owner: string; broker: string; account_type: string }) =>
     post("/api/accounts", a),
   addProfile: (broker: string, mapping: string) =>

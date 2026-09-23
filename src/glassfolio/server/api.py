@@ -14,6 +14,7 @@ from glassfolio.exposure import Slice, company_exposure, portfolio_summary
 from glassfolio.flows import list_inbox, resolve_flow
 from glassfolio.performance import returns
 from glassfolio.snapshots import value_history
+from glassfolio.tax import company_after_tax, portfolio_after_tax
 from glassfolio.lake import Lake, list_ops, new_id
 from glassfolio.server.serialize import to_json
 
@@ -67,9 +68,15 @@ class Api:
     async def exposure(self, request: Request) -> JSONResponse:
         as_of, slice_ = self._as_of(request), self._slice(request)
         summary = portfolio_summary(self.lake, as_of, slice_)
-        companies = company_exposure(self.lake, as_of, slice_=slice_)
-        return JSONResponse(to_json({"as_of": as_of, "summary": summary,
-                                     "companies": companies}))
+        taxed = {(c.ticker, c.name): c for c in company_after_tax(self.lake, as_of, slice_)}
+        companies = [{**to_json(c), **({"after_tax": t.after_tax, "direct_after_tax": t.direct_after_tax,
+                                        "via_fund_after_tax": t.via_fund_after_tax}
+                                       if (t := taxed.get((c.ticker, c.name))) else {})}
+                     for c in company_exposure(self.lake, as_of, slice_=slice_)]
+        after = portfolio_after_tax(self.lake, as_of, slice_)
+        return JSONResponse(to_json({"as_of": as_of, "companies": companies, "summary": {
+            **to_json(summary), "after_tax": after.after_tax, "tax": after.tax,
+            "missing_cost": after.missing_cost}}))
 
     async def company(self, request: Request) -> JSONResponse:
         as_of, slice_ = self._as_of(request), self._slice(request)
@@ -99,6 +106,8 @@ class Api:
         return JSONResponse(to_json({
             "start": start, "end": end,
             "returns": returns(self.lake, start, end, slice_),
+            "after_tax": {"start": portfolio_after_tax(self.lake, start, slice_).after_tax,
+                          "end": portfolio_after_tax(self.lake, end, slice_).after_tax},
             "companies": [{**to_json(a), "change": a.change}
                           for a in company_attribution(self.lake, start, end, slice_)]}))
 

@@ -43,7 +43,15 @@ def cmd_init(args) -> None:
 
 
 def cmd_owner_add(args) -> None:
-    print(registry.add_owner(_lake(), args.nickname))
+    from glassfolio.server.tax_api import profile_from
+    from glassfolio.tax_profiles import add_tax_profile, assign_tax_profile
+
+    lake = _lake()
+    profile = profile_from({"state": args.state, "state_rate": args.state_rate,
+                            "federal_ltcg_rate": args.ltcg, "federal_ordinary_rate": args.ordinary,
+                            "name": f"{args.nickname} ({args.state})"})
+    print(registry.add_owner(lake, args.nickname))
+    assign_tax_profile(lake, add_tax_profile(lake, profile), owner=args.nickname)
 
 
 def cmd_account_add(args) -> None:
@@ -92,6 +100,25 @@ def cmd_import_etf(args) -> None:
         sys.exit("Rejected; the previous version stays in force.")
     if _confirm(args, "Publish this version?"):
         print(etf_import.commit_etf_holdings(lake, p))
+
+
+def cmd_import_lots(args) -> None:
+    from glassfolio.tax_profiles import import_lots
+
+    print(import_lots(_lake(), Path(args.file), args.account, args.as_of))
+
+
+def cmd_taxes(args) -> None:
+    from glassfolio.tax import portfolio_after_tax, position_taxes
+
+    lake = _lake()
+    for p in position_taxes(lake, args.as_of):
+        if p.value:
+            print(f"{printable(p.account):<18} {printable(p.ticker) or '?':<8} {p.treatment:<9} "
+                  f"{_money(p.value)} tax {_money(p.tax)}  {p.basis}")
+    t = portfolio_after_tax(lake, args.as_of)
+    print(f"Before tax {_money(t.pre_tax).strip()}, tax {_money(t.tax).strip()}, "
+          f"after tax {_money(t.after_tax).strip()} (planning estimate, not tax advice)")
 
 
 def cmd_import_prices(args) -> None:
@@ -260,7 +287,12 @@ def _parser() -> argparse.ArgumentParser:
     yes = (("-y", "--yes"), {"action": "store_true", "help": "skip confirmation"})
     add("init", cmd_init)
     owner = sub.add_parser("owner").add_subparsers(required=True)
-    add("add", cmd_owner_add, (("nickname",), {}), parent=owner)
+    add("add", cmd_owner_add, (("nickname",), {}),
+        (("--state",), {"default": "CA", "help": "two-letter state code (default CA)"}),
+        (("--state-rate",), {"type": float, "help": "fraction, e.g. 0.093; needed for progressive states"}),
+        (("--ltcg",), {"type": float, "default": 0.15, "help": "federal long-term gains rate"}),
+        (("--ordinary",), {"type": float, "default": 0.24, "help": "federal income bracket"}),
+        parent=owner)
     account = sub.add_parser("account").add_subparsers(required=True)
     add("add", cmd_account_add, (("nickname",), {}), (("--owner",), {"required": True}),
         (("--broker",), {"required": True}),
@@ -279,6 +311,9 @@ def _parser() -> argparse.ArgumentParser:
     add("prices", cmd_import_prices, (("file",), {}), (("--source",), {"default": "manual"}),
         parent=imp)
     add("actions", cmd_import_actions, (("file",), {}), parent=imp)
+    add("lots", cmd_import_lots, (("file",), {}), (("--account",), {"required": True}),
+        (("--as-of",), {"type": day, "required": True}), parent=imp)
+    add("taxes", cmd_taxes, (("--as-of",), {"type": day, "default": date.today()}))
     add("proxy", cmd_proxy, (("ticker",), {}), (("proxy",), {}))
     add("exposure", cmd_exposure, (("--ticker",), {}), (("--as-of",), {"type": day, "default": date.today()}),
         (("--group-by",), {"choices": ("account", "fund")}))

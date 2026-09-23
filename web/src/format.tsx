@@ -22,5 +22,12 @@ export function StatusBadge({ status, label }: { status: Status; label?: string 
 }
 
 export const accountTypeLabel: Record<string, string> = {
-  taxable: "Taxable", traditional_ira: "Traditional IRA", roth_ira: "Roth IRA", "401k": "401(k)", other: "Other",
+  taxable: "Taxable", traditional_ira: "Traditional IRA", roth_ira: "Roth IRA", "401k": "401(k)",
+  hsa: "HSA", "529": "529 plan", other: "Other",
 };
+
+export const treatmentLabel: Record<string, string> = {
+  taxable: "Taxable", deferred: "Tax-deferred", exempt: "Tax-exempt",
+};
+
+export const pctInput = (x: number | null | undefined) => (x == null ? "" : String(Math.round(x * 10000) / 100));

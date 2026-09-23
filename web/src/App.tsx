@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type Meta, type Slice } from "./api";
+import { api, type Basis, type Meta, type Slice } from "./api";
 import { accountTypeLabel } from "./format";
 import { Icon } from "./icons";
 import ExposureView from "./views/Exposure";
@@ -9,11 +9,14 @@ import ImportView from "./views/Import";
 import ActivityView from "./views/Activity";
 import ChangesView from "./views/Changes";
 import InboxView from "./views/Inbox";
+import TaxesView from "./views/Taxes";
+import { Segmented } from "./Segmented";
 
 const VIEWS = [
   { id: "exposure", label: "What you own", icon: "own" },
   { id: "changes", label: "What changed", icon: "changes" },
   { id: "inbox", label: "Questions", icon: "questions" },
+  { id: "taxes", label: "Taxes", icon: "tax" },
   { id: "accounts", label: "Accounts", icon: "accounts" },
   { id: "import", label: "Import", icon: "import" },
   { id: "checks", label: "Reconcile", icon: "reconcile" },
@@ -52,6 +55,7 @@ export default function App() {
   const [slice, setSlice] = useState<Slice>({});
   const [asOf, setAsOf] = useState("");
   const [privacy, setPrivacy] = useState(false);
+  const [basis, setBasis] = useState<Basis>("pre");
 
   const [questions, setQuestions] = useState(0);
   const reload = useCallback(() => {
@@ -97,6 +101,12 @@ export default function App() {
       <div className="main">
         <header className="toolbar">
           <h1>{title}</h1>
+          {(view === "exposure" || view === "changes") && (
+            <div className="capsule-group glass">
+              <Segmented label="Values" value={basis} onChange={setBasis}
+                options={[{ id: "pre", label: "Before tax" }, { id: "after", label: "After tax" }]} />
+            </div>
+          )}
           <div className="capsule-group glass">
             <label className="field">
               <Icon name="calendar" size={16} />
@@ -110,9 +120,10 @@ export default function App() {
             </button>
           </div>
         </header>
-        {meta && asOf && view === "exposure" && <ExposureView asOf={asOf} slice={slice} onImport={() => setView("import")} />}
-        {meta && asOf && view === "changes" && <ChangesView key={asOf} asOf={asOf} slice={slice} statementDates={meta.statement_dates} onInbox={() => setView("inbox")} />}
+        {meta && asOf && view === "exposure" && <ExposureView asOf={asOf} slice={slice} basis={basis} onImport={() => setView("import")} />}
+        {meta && asOf && view === "changes" && <ChangesView key={asOf} asOf={asOf} slice={slice} basis={basis} statementDates={meta.statement_dates} onInbox={() => setView("inbox")} />}
         {view === "inbox" && <InboxView onChange={reload} />}
+        {meta && asOf && view === "taxes" && <TaxesView asOf={asOf} slice={slice} />}
         {meta && view === "accounts" && <AccountsView meta={meta} onChange={reload} />}
         {meta && view === "import" && <ImportView meta={meta} asOf={asOf} onDone={reload} />}
         {meta && view === "checks" && <ChecksView meta={meta} asOf={asOf} />}

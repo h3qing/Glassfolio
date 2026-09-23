@@ -23,7 +23,7 @@ BUSINESS_TABLES = (
     "owners", "accounts", "securities", "positions", "prices",
     "corporate_actions", "etf_holdings", "import_profiles", "import_files",
     "recon_results", "flow_answers", "flow_rules", "inbox_items", "portfolio_daily",
-    "fetch_log",
+    "fetch_log", "tax_profiles", "tax_assignments", "position_lots",
 )
 ACTORS = ("user", "scheduler", "model")
 

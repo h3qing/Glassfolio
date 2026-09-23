@@ -1,9 +1,38 @@
-import { useState } from "react";
-import { api, type Meta } from "../api";
+import { useEffect, useState } from "react";
+import { api, type Meta, type TaxOverview } from "../api";
+import { draftFrom, TaxProfileFields, toBody, type ProfileDraft } from "./TaxProfileForm";
 import { accountTypeLabel } from "../format";
 
+function AddPerson({ onDone }: { onDone: () => void }) {
+  const [overview, setOverview] = useState<TaxOverview | null>(null);
+  const [name, setName] = useState("");
+  const [draft, setDraft] = useState<ProfileDraft | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { api.taxes("", {}).then((o) => { setOverview(o); setDraft(draftFrom(o.default_profile)); }); }, []);
+  if (!overview || !draft) return null;
+  return (
+    <section className="sheet">
+      <h2 className="section-title">Add a person</h2>
+      <p className="muted" style={{ margin: "0 6px 12px" }}>Their tax assumptions set every after-tax number. You can change them later under Taxes.</p>
+      <form onSubmit={(e) => {
+        e.preventDefault();
+        try {
+          api.addPerson({ nickname: name, ...toBody(draft) })
+            .then(() => { setName(""); setError(null); onDone(); }).catch((x) => setError(x.message));
+        } catch (x) { setError((x as Error).message); }
+      }}>
+        <div className="row" style={{ marginBottom: 12 }}>
+          <label className="field">Name<input value={name} onChange={(e) => setName(e.target.value)} required /></label>
+        </div>
+        <TaxProfileFields draft={draft} states={overview.states} onChange={setDraft} />
+        <div className="row" style={{ marginTop: 14 }}><button className="btn primary">Add person</button></div>
+      </form>
+      {error && <p className="error">{error}</p>}
+    </section>
+  );
+}
+
 export default function AccountsView({ meta, onChange }: { meta: Meta; onChange: () => void }) {
-  const [person, setPerson] = useState("");
   const [acct, setAcct] = useState({ nickname: "", owner: meta.owners[0] ?? "", broker: "", account_type: "taxable" });
   const [error, setError] = useState<string | null>(null);
 
@@ -28,13 +57,7 @@ export default function AccountsView({ meta, onChange }: { meta: Meta; onChange:
           </table>
         ) : <p className="empty">No accounts yet. Add a person first, then their accounts. Nicknames only; never enter account numbers.</p>}
       </section>
-      <section className="sheet">
-        <h2 className="section-title">Add a person</h2>
-        <form className="row" onSubmit={(e) => { e.preventDefault(); run(api.addOwner(person), () => setPerson("")); }}>
-          <label className="field">Name<input value={person} onChange={(e) => setPerson(e.target.value)} required /></label>
-          <button className="btn">Add person</button>
-        </form>
-      </section>
+      <AddPerson onDone={onChange} />
       <section className="sheet">
         <h2 className="section-title">Add an account</h2>
         <form className="row" onSubmit={(e) => {

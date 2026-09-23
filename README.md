@@ -8,7 +8,7 @@ answers "how much NVDA do I actually own?" by looking through every fund down to
 companies, reconciling against your broker totals, and keeping all data on your
 machine, encrypted.
 
-> Status: phases 1–3, plus an early local web UI.
+> Status: phases 1–4, plus an early local web UI.
 > - Encrypted storage, and an audited write log with restore.
 > - Statement and ETF-holdings import.
 > - Look-through exposure, sliced by person, account type and broker.
@@ -17,8 +17,9 @@ machine, encrypted.
 > - Cash flows inferred from statements, with questions when a difference is unclear.
 > - Attribution of each change to price, your money or fund rebalancing.
 > - TWR and MWR returns.
+> - After-tax values by account type and person, with what-if rates.
 >
-> The tax layer, the local AI assistant and the Tauri desktop app come later
+> The local AI assistant and the Tauri desktop app come later
 > ([roadmap](docs/SPEC.md#12-路线图)).
 
 ## Try it (synthetic data, 30 seconds)
@@ -58,6 +59,19 @@ uv run glassfolio check --account "Schwab Taxable" --reported-total 123456.78
 uv run glassfolio ops                                      # audit log;  `restore <op_id>` rolls back
 uv run glassfolio serve                                    # web UI (build once: pnpm -C web install && pnpm -C web build)
 ```
+
+### Taxes (planning estimates, not tax advice)
+
+```bash
+uv run glassfolio owner add alex --state CA --ltcg 0.15 --ordinary 0.24   # tax assumptions per person
+uv run glassfolio import lots lots.csv --account "Schwab Taxable" --as-of 2026-09-18   # optional
+uv run glassfolio taxes
+```
+
+Without lot details, gains are treated as short-term (switchable per person). In the
+UI, the toolbar switches every view between before-tax and after-tax values, and the
+Taxes page has per-person assumptions, per-account overrides (including tax-exempt)
+and a what-if panel.
 
 ### Daily prices and changes
 

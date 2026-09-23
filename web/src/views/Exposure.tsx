@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { api, type Company, type CompanyDetail, type Exposure, type Slice } from "../api";
+import { api, type Basis, type Company, type CompanyDetail, type Exposure, type Slice } from "../api";
 import { Amount, fmtPct } from "../format";
 
 function SplitBar({ c, max }: { c: Company; max: number }) {
@@ -57,7 +57,15 @@ function Detail({ ticker, asOf, slice }: { ticker: string; asOf: string; slice: 
   );
 }
 
-export default function ExposureView({ asOf, slice, onImport }: { asOf: string; slice: Slice; onImport: () => void }) {
+/** Company values in the chosen basis (after tax: each line carries its position's tax). */
+function inBasis(c: Company, basis: Basis): Company {
+  if (basis === "pre" || c.after_tax == null) return c;
+  return { ...c, direct_value: c.direct_after_tax!, via_fund_value: c.via_fund_after_tax!, total: c.after_tax };
+}
+
+export default function ExposureView({ asOf, slice, basis, onImport }: {
+  asOf: string; slice: Slice; basis: Basis; onImport: () => void;
+}) {
   const [data, setData] = useState<Exposure | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -67,7 +75,9 @@ export default function ExposureView({ asOf, slice, onImport }: { asOf: string; 
 
   if (error) return <section className="sheet"><p className="error">{error}</p></section>;
   if (!data) return <section className="sheet"><p className="muted">Looking through your funds…</p></section>;
-  const { summary, companies } = data;
+  const { summary } = data;
+  const companies = data.companies.map((c) => inBasis(c, basis)).sort((a, b) => b.total - a.total);
+  const portfolio = basis === "pre" ? summary.total_value : summary.after_tax;
   if (!companies.length) {
     return (
       <section className="sheet">
@@ -81,10 +91,11 @@ export default function ExposureView({ asOf, slice, onImport }: { asOf: string; 
   return (
     <>
       <section className="sheet">
-        <Headline data={data} />
+        <Headline data={{ ...data, companies, summary: { ...summary, total_value: portfolio } }} />
         <dl className="facts">
-          <div><dt>Portfolio</dt><dd className="num"><Amount value={summary.total_value} /></dd></div>
-          <div><dt>Through funds</dt><dd className="num">{fmtPct(funds / summary.total_value)}</dd></div>
+          <div><dt>{basis === "pre" ? "Portfolio" : "Portfolio after tax"}</dt><dd className="num"><Amount value={portfolio} /></dd></div>
+          <div><dt>{basis === "pre" ? "After tax" : "Before tax"}</dt><dd className="num faint"><Amount value={basis === "pre" ? summary.after_tax : summary.total_value} /></dd></div>
+          <div><dt>Through funds</dt><dd className="num">{fmtPct(funds / portfolio)}</dd></div>
           <div><dt>Cash</dt><dd className="num">{fmtPct(summary.cash_value / summary.total_value)}</dd></div>
           <div><dt>Approximate</dt><dd className="num">{fmtPct(summary.approx_value / summary.total_value)}</dd></div>
           {summary.missing_prices > 0 && (
@@ -121,7 +132,7 @@ export default function ExposureView({ asOf, slice, onImport }: { asOf: string; 
                     <td className="num"><Amount value={c.direct_value} /></td>
                     <td className="num hide-narrow"><Amount value={c.via_fund_value} /></td>
                     <td className="num"><Amount value={c.total} /></td>
-                    <td className="num">{fmtPct(c.total / summary.total_value)}</td>
+                    <td className="num">{fmtPct(c.total / portfolio)}</td>
                   </tr>
                   {isOpen && c.ticker && (
                     <tr><td colSpan={6}><Detail ticker={c.ticker} asOf={asOf} slice={slice} /></td></tr>

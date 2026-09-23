@@ -155,3 +155,52 @@ def test_oversized_upload_rejected_before_parsing(client):
     r = client.post("/api/import/prices", content=b"x", headers={
         "content-type": "multipart/form-data; boundary=b", "content-length": str(30 * 1024 * 1024)})
     assert r.status_code == 400 and "20 MB" in r.json()["error"]
+
+
+def test_exposure_includes_after_tax(client):
+    body = client.get("/api/exposure?as_of=2026-09-18&account=Alice%20Taxable").json()
+    assert body["summary"]["after_tax"] == pytest.approx(8000 - 1500 * 0.333)
+    nvda = {c["ticker"]: c for c in body["companies"]}["NVDA"]
+    assert nvda["after_tax"] < nvda["total"]
+
+
+def test_onboard_person_with_state_and_what_if(client):
+    r = client.post("/api/people", json={"nickname": "sam", "state": "TX",
+                                        "federal_ltcg_rate": 0.15, "federal_ordinary_rate": 0.22})
+    assert r.status_code == 200
+    body = client.get("/api/taxes").json()
+    sam = next(p for p in body["profiles"] if p["name"] == "sam (TX)")
+    assert sam["state_rate"] == 0 and sam["rates"]["stcg"] == pytest.approx(0.22)
+    what_if = client.get("/api/taxes?as_of=2026-09-18&account=Alice%20Taxable&state_rate=0").json()
+    assert what_if["what_if"]["tax"] == pytest.approx(1500 * 0.24)
+    assert what_if["totals"]["tax"] == pytest.approx(1500 * 0.333)
+
+
+def test_progressive_state_requires_a_rate(client):
+    r = client.post("/api/people", json={"nickname": "ny", "state": "NY"})
+    assert r.status_code == 400 and "bracket" in r.json()["error"]
+
+
+def test_mark_account_tax_exempt(client):
+    assert client.post("/api/tax/treatment", json={"account": "Alice Taxable", "treatment": "exempt"}).status_code == 200
+    body = client.get("/api/exposure?as_of=2026-09-18&account=Alice%20Taxable").json()
+    assert body["summary"]["tax"] == 0
+
+
+def test_computed_properties_are_serialized(client):
+    body = client.get("/api/taxes?as_of=2026-09-18&account=Alice%20Taxable").json()
+    assert body["totals"]["after_tax"] == pytest.approx(8000 - 1500 * 0.333)
+
+
+def test_bad_person_rates_create_nothing(client):
+    r = client.post("/api/people", json={"nickname": "bob", "state": "CA", "state_rate": 9.3})
+    assert r.status_code == 400
+    assert "bob" not in client.get("/api/meta").json()["owners"]
+
+
+def test_strict_inputs(client):
+    r = client.post("/api/people", json={"nickname": "x", "state": "CA", "niit": "false",
+                                        "federal_ltcg_rate": None})
+    assert r.status_code == 400
+    assert client.get("/api/taxes?ltcg=5").status_code == 400
+    assert client.get("/api/taxes?assumption=sideways").status_code == 400
