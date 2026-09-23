@@ -1,0 +1,11 @@
+Account Summary
+Account,Net Account Value,Total Gain $,Total Gain %,Day's Gain $,Day's Gain %,Available For Withdrawal,Cash Purchasing Power
+Brokerage -XX12,8125.00,1125.00,16.07,12.00,0.15,1500.00,1500.00
+
+View Summary - All Positions
+Symbol,Last Price $,Change $,Change %,Quantity,Price Paid $,Day's Gain $,Total Gain $,Total Gain %,Value $
+AAPL,205.00,1.00,0.49,10,150.00,10.00,550.00,36.67,2050.00
+VTI,26.00,0.10,0.39,175,24.00,17.50,350.00,8.33,4550.00
+CASH,,,,,,,,,1525.00
+TOTAL,,,,,,,,,8125.00
+Generated at 09/30/2026 04:05 PM EDT
