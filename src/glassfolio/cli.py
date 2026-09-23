@@ -60,7 +60,8 @@ def cmd_import_statement(args) -> None:
     p = broker_import.preview_statement(lake, Path(args.file), args.account, args.profile, args.as_of)
     print(f"Statement as of {p.as_of}  ({len(p.matches)} rows)")
     for m in p.matches:
-        master = printable(m.master_name) or "NEW SECURITY"
+        master = printable(m.master_name) or (
+            "NEW SECURITY" if m.status == "new" else "(no name on file yet)")
         print(f"  {m.status:<8} {printable(m.row.symbol):<10} "
               f"file: {printable(m.row.description):<32} master: {master}")
     print(f"  total at export prices: {_money(float(p.total_value)).strip()}")

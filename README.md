@@ -13,7 +13,21 @@ machine, encrypted.
 > for now; the local AI assistant and desktop app come in later phases
 > ([roadmap](docs/SPEC.md#12-路线图)).
 
-## Quick start
+## Try it (synthetic data, 30 seconds)
+
+Requires macOS and [uv](https://docs.astral.sh/uv/).
+
+```bash
+git clone https://github.com/h3qing/Glassfolio && cd Glassfolio
+./scripts/demo.sh
+```
+
+This loads the [golden test portfolio](tests/golden/README.md) into a throwaway
+database with a throwaway key, then prints the look-through exposure, the NVDA
+breakdown by fund, a reconciliation, and the audit log. It never touches your
+Keychain.
+
+## Quick start (your own data)
 
 ```bash
 uv sync

@@ -3,6 +3,7 @@ name = "glassfolio"
 version = "0.1.0"
 description = "See through your portfolio: local-first look-through exposure across accounts."
 readme = "README.md"
+license = "MIT"
 authors = [
     { name = "Heqing Huang" }
 ]
