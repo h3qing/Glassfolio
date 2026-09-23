@@ -1,0 +1,10 @@
+Glass Fund of Funds
+Fund Holdings as of,"Sep 10, 2026"
+Inception Date,"Jan 02, 2020"
+Shares Outstanding,"100,000.00"
+ 
+Ticker,Name,Sector,Asset Class,Market Value,Weight (%),Notional Value,Quantity,Price,Location,Exchange,Currency,FX Rate,Market Currency,Accrual Date
+"QQQ","INVESCO QQQ TRUST","Information Technology","Equity","1,000,000.00","50.00","1,000,000.00","20,000.00","50.00","United States","NASDAQ","USD","1.00","USD","-"
+"VTI","VANGUARD TOTAL STOCK MKT ETF","Information Technology","Equity","1,000,000.00","50.00","1,000,000.00","40,000.00","25.00","United States","NYSE Arca","USD","1.00","USD","-"
+ 
+"The content contained herein is synthetic test data."

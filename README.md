@@ -1,0 +1,79 @@
+# Glassfolio
+
+*See through your portfolio.*
+
+Your accounts are spread across brokers, account types and family members, and the
+same company (say NVDA) is held directly **and** inside several ETFs. Glassfolio
+answers "how much NVDA do I actually own?" by looking through every fund down to the
+companies, reconciling against your broker totals, and keeping all data on your
+machine, encrypted.
+
+> Status: **Phase 1 (MVP)**: encrypted storage, statement and ETF-holdings import,
+> look-through exposure, reconciliation, and an audited write log with restore. A CLI
+> for now; the local AI assistant and desktop app come in later phases
+> ([roadmap](docs/SPEC.md#12-路线图)).
+
+## Quick start
+
+```bash
+uv sync
+uv run glassfolio init                      # key → macOS Keychain; prints a recovery key
+uv run glassfolio owner add me
+uv run glassfolio account add "Schwab Taxable" --owner me --broker Schwab --type taxable
+uv run glassfolio profile add Schwab mapping.json          # column mapping, see below
+uv run glassfolio import etf QQQ_holdings.csv --etf QQQ --as-of 2026-09-17 --shares-outstanding 1000000
+uv run glassfolio import etf IVV_holdings.csv --etf IVV --format ishares
+uv run glassfolio import statement positions.csv --account "Schwab Taxable" --profile prof_… --as-of 2026-09-18
+uv run glassfolio import prices closes.csv                 # date,ticker,close
+uv run glassfolio exposure --ticker NVDA --group-by fund
+uv run glassfolio check --account "Schwab Taxable" --reported-total 123456.78
+uv run glassfolio ops                                      # audit log;  `restore <op_id>` rolls back
+```
+
+A column mapping is configuration, never code. See
+[`tests/golden/broker_profile.json`](tests/golden/broker_profile.json):
+
+```json
+{"header_row": 1,
+ "columns": {"symbol": "Symbol", "description": "Description", "shares": "Quantity",
+             "price": "Price", "market_value": "Market Value", "cost_basis": "Cost Basis"},
+ "cash_symbols": ["Cash & Cash Investments"], "skip_symbols": ["Account Total"]}
+```
+
+## How exposure is computed
+
+It uses share baskets rather than weights, because weights drift with prices and baskets don't (see [spec §4.1](docs/SPEC.md#41-穿透敞口用股数篮子不用权重)):
+
+```
+b(e,s,t) = S(e,s,t) / N(e,t)                       shares of s per ETF share
+x(s,t)   = direct(s,t) + Σ_e q(e,t) · b(e,s,t)       your effective shares of s
+```
+
+- Uses the latest holdings version on or before the valuation date. Positions, baskets and prices are split-adjusted.
+- Falls back to `weight × p(ETF) / p(s)` when share counts are missing (flagged ≈).
+- Funds of funds are expanded recursively, up to 5 levels deep. A CIT without holdings maps to an index proxy (flagged ≈).
+- Each expanded fund also emits a `fund_residual` line (its cash drag, premium or discount), so the look-through lines always add up to portfolio value. The `conservation` check verifies this.
+
+## Security model
+
+| Layer | How |
+| --- | --- |
+| Catalog | DuckDB AES-256-GCM encrypted file (`catalog.duckdb`) |
+| Data files | DuckLake `ENCRYPTED` Parquet, one key per file |
+| Temp files | `temp_file_encryption = true` |
+| Key | macOS Keychain (`glassfolio` / `db-key`); `GLASSFOLIO_DB_KEY` for tests only |
+| Imported files | Original stored inside the encrypted lake; delete your copy after import |
+| Logs | `ops_log` records tool, ids and row counts, never amounts or quantities |
+
+Data lives in `~/Library/Application Support/Glassfolio` (override with `GLASSFOLIO_HOME`).
+**This repository contains only code and synthetic data.** Never commit real statements.
+
+## Development
+
+```bash
+uv run pytest --cov=glassfolio
+```
+
+Tests run on a synthetic [golden portfolio](tests/golden/README.md) with hand-computed
+expected values. Design and requirements: [docs/SPEC.md](docs/SPEC.md).
+Implementation notes and deviations from the spec: [docs/DECISIONS.md](docs/DECISIONS.md).

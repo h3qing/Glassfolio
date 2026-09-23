@@ -1,0 +1,4 @@
+ticker,name,asset_class,shares,weight,price,isin
+NVDA,NVIDIA CORP,Equity,,0.20,,US67066G1040
+AAPL,APPLE INC,Equity,,0.40,,US0378331005
+MSFT,MICROSOFT CORP,Equity,,0.40,,US5949181045

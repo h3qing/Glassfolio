@@ -1,0 +1,13 @@
+{
+  "header_row": 1,
+  "columns": {
+    "symbol": "Symbol",
+    "description": "Description",
+    "shares": "Quantity",
+    "price": "Price",
+    "market_value": "Market Value",
+    "cost_basis": "Cost Basis"
+  },
+  "cash_symbols": ["Cash & Cash Investments"],
+  "skip_symbols": ["Account Total"]
+}

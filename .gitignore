@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.coverage
+.tmp/
+htmlcov/
+dist/
+
+# Never commit real data. The database lives in ~/Library/Application Support/Glassfolio.
+*.duckdb
+*.duckdb.wal
+*.ducklake
+*.parquet
+data/
+*.csv
+!tests/golden/*.csv
+*.pdf
+*.xlsx
+.env
+.env.*
+
+.DS_Store
