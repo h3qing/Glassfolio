@@ -9,6 +9,7 @@ import ImportView from "./views/Import";
 import ActivityView from "./views/Activity";
 import ChangesView from "./views/Changes";
 import InboxView from "./views/Inbox";
+import SettingsView from "./views/Settings";
 import TaxesView from "./views/Taxes";
 import { Segmented } from "./Segmented";
 
@@ -21,6 +22,7 @@ const VIEWS = [
   { id: "import", label: "Import", icon: "import" },
   { id: "checks", label: "Reconcile", icon: "reconcile" },
   { id: "activity", label: "Activity", icon: "activity" },
+  { id: "settings", label: "Settings", icon: "settings" },
 ] as const;
 type ViewId = (typeof VIEWS)[number]["id"];
 
@@ -125,7 +127,8 @@ export default function App() {
         {view === "inbox" && <InboxView onChange={reload} />}
         {meta && asOf && view === "taxes" && <TaxesView asOf={asOf} slice={slice} />}
         {meta && view === "accounts" && <AccountsView meta={meta} onChange={reload} />}
-        {meta && view === "import" && <ImportView meta={meta} asOf={asOf} onDone={reload} />}
+        {meta && view === "import" && <ImportView meta={meta} asOf={asOf} onDone={reload} onSettings={() => setView("settings")} />}
+        {view === "settings" && <SettingsView />}
         {meta && view === "checks" && <ChecksView meta={meta} asOf={asOf} />}
         {view === "activity" && <ActivityView />}
       </div>

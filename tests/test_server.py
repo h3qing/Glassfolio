@@ -204,3 +204,68 @@ def test_strict_inputs(client):
     assert r.status_code == 400
     assert client.get("/api/taxes?ltcg=5").status_code == 400
     assert client.get("/api/taxes?assumption=sideways").status_code == 400
+
+
+EVALS = GOLDEN.parent.parent / "evals" / "files"
+
+
+def test_assisted_import_without_a_model_then_recognised(client):
+    raw = (EVALS / "fidelity_style_positions.csv").read_bytes()
+    read = client.post("/api/assist/read", files={"file": ("f.csv", raw)}).json()
+    assert read["source"] == "heuristic" and read["kind"] == "positions" and read["errors"] == []
+    assert read["as_of"] == "2026-10-01" and read["cash_symbols"] == ["SPAXX**"]
+    preview = client.post("/api/assist/preview", json={
+        "token": read["token"], "account": "Alice Taxable", "broker": "Fidelity", "reading": {}}).json()
+    assert {r["symbol"] for r in preview["rows"]} == {"NVDA", "FXAIX", "SPAXX**"}
+    assert client.post("/api/import/commit", json={"token": preview["token"]}).status_code == 200
+    again = client.post("/api/assist/read", files={
+        "file": ("g.csv", raw.replace(b"10/01/2026", b"10/31/2026"))}).json()
+    assert again["source"] == "saved" and again["broker"] == "Fidelity" and again["as_of"] == "2026-10-31"
+
+
+def test_assisted_fund_holdings_and_lots(client):
+    raw = (EVALS / "vanguard_style_holdings.csv").read_bytes()
+    read = client.post("/api/assist/read", files={"file": ("h.csv", raw)}).json()
+    assert read["kind"] == "fund_holdings" and read["fund_ticker"] == "GTOT"
+    preview = client.post("/api/assist/preview", json={"token": read["token"], "reading": {}}).json()
+    assert preview["count"] == 4 and preview["errors"] == []
+    assert client.post("/api/import/commit", json={"token": preview["token"]}).status_code == 200
+    lots = (EVALS / "lots_style.csv").read_bytes()
+    read = client.post("/api/assist/read", files={"file": ("l.csv", lots)}).json()
+    preview = client.post("/api/assist/preview", json={"token": read["token"], "account": "Alice Taxable",
+                                                      "reading": {}}).json()
+    assert preview["count"] == 2
+    assert client.post("/api/import/commit", json={"token": preview["token"]}).status_code == 200
+
+
+def test_user_corrections_are_validated(client):
+    raw = (EVALS / "plain_positions.csv").read_bytes()
+    read = client.post("/api/assist/read", files={"file": ("p.csv", raw)}).json()
+    bad = client.post("/api/assist/preview", json={"token": read["token"], "account": "Alice Taxable",
+                                                  "reading": {"columns": {**read["columns"], "shares": "Close"},
+                                                              "as_of": "2026-09-18", "edited": True}})
+    assert bad.status_code == 422 and any("doesn't match" in e for e in bad.json()["errors"])
+
+
+def test_model_settings_endpoints(client):
+    body = client.get("/api/assist/models").json()
+    assert body["name"] is None
+    r = client.post("/api/assist/model", json={"url": "http://example.com/v1", "name": "x"})
+    assert r.status_code == 400
+    ok = client.post("/api/assist/model", json={"url": "http://127.0.0.1:9/v1", "name": "tiny"}).json()
+    assert ok["name"] == "tiny"
+
+
+def test_failed_lots_import_saves_no_layout(client):
+    before = len(client.get("/api/meta").json()["profiles"])
+    lots = b"Symbol,Open Date,Quantity,Cost Basis\nZZZZ,01/02/2024,6,300\n"
+    read = client.post("/api/assist/read", files={"file": ("l.csv", lots)}).json()
+    r = client.post("/api/assist/preview", json={"token": read["token"], "account": "Alice Taxable",
+                                                 "reading": {"as_of": "2026-09-18"}})
+    assert r.status_code == 400 and "unknown securities" in r.json()["error"]
+    assert len(client.get("/api/meta").json()["profiles"]) == before
+
+
+def test_preview_store_is_bounded(client):
+    from glassfolio.server.api import MAX_HELD, keep_recent
+    assert len(keep_recent({i: i for i in range(MAX_HELD + 5)})) == MAX_HELD

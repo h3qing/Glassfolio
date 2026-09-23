@@ -82,14 +82,16 @@ def add_account(
     return run_write(lake, meta, work)[0]
 
 
-def add_profile(lake: Lake, broker: str, mapping: dict, actor: str = "user") -> str:
+def add_profile(lake: Lake, broker: str, mapping: dict, actor: str = "user",
+                kind: str = "positions", header_fingerprint: str | None = None) -> str:
     """Save a user-confirmed column mapping (configuration, never code)."""
     profile_id = new_id("prof")
 
     def work(con):
         con.execute(
-            "INSERT INTO import_profiles VALUES (?, ?, ?, ?)",
-            [profile_id, broker, json.dumps(mapping), utc_now()],
+            "INSERT INTO import_profiles (profile_id, broker, column_mapping, confirmed_at, kind, "
+            "header_fingerprint) VALUES (?, ?, ?, ?, ?, ?)",
+            [profile_id, broker, json.dumps(mapping), utc_now(), kind, header_fingerprint],
         )
         return profile_id, RowCounts(inserted=1)
 

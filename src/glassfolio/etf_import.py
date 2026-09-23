@@ -10,13 +10,13 @@ from decimal import Decimal
 from pathlib import Path
 
 from glassfolio.lake import Lake, OpMeta, RowCounts, insert_rows, run_write, utc_now
-from glassfolio.parsing import cell, clean, file_hash, parse_number, read_rows, read_source
+from glassfolio.parsing import cell, clean, file_hash, looks_numeric, parse_number, read_rows, read_source
 from glassfolio.securities import Security, ensure_securities, load_securities, resolve
 
 WEIGHT_RANGE = (0.95, 1.05)
 MAX_COUNT_CHANGE = 0.20
 MIN_MAPPED_WEIGHT = 0.97
-FORMATS = ("generic", "ishares")
+FORMATS = ("generic", "ishares", "mapped")
 
 
 @dataclass(frozen=True)
@@ -71,6 +71,36 @@ def parse_generic(text: str, as_of: date, shares_outstanding: Decimal | None) ->
         for r in rows[1:] if any(c.strip() for c in r)
     )
     return HoldingsFile(as_of, shares_outstanding, parsed)
+
+
+_CASHLIKE = ("cash", "money market", "usd", "dollar")
+
+
+def parse_mapped(text: str, mapping: dict, as_of: date, shares_outstanding: Decimal | None) -> HoldingsFile:
+    """Any issuer's layout, described by a mapping the user confirmed (often proposed by the model)."""
+    rows = read_rows(text)
+    start = mapping.get("header_row", 0)
+    header = tuple(h.strip() for h in rows[start])
+    cols = mapping.get("columns", {})
+    scale = 100 if mapping.get("weight_is_percent", True) else 1
+    get = lambda r, f: cell(r, header, cols.get(f))  # noqa: E731
+    out = []
+    body = rows[start + 1:]
+    end = next((i for i, r in enumerate(body) if not any(c.strip() for c in r)), len(body))
+    numeric = cols.get("weight") or cols.get("shares")
+    if any(looks_numeric(get(r, "weight") or get(r, "shares")) for r in body[end:]):
+        raise ValueError(f"the holdings table continues after a blank line (column {numeric}); split the file")
+    for r in body[:end]:
+        ticker, name = clean(get(r, "ticker")), clean(get(r, "name"))
+        if ticker is None and name is None:
+            continue
+        label = f"{ticker or ''} {name or ''}".lower()
+        asset = clean(get(r, "asset_class")) or ("Cash" if any(w in label for w in _CASHLIKE) else "Equity")
+        weight = parse_number(get(r, "weight"))
+        out.append(HoldingRow(ticker, name, asset, parse_number(get(r, "shares")),
+                              None if weight is None else float(weight) / scale, parse_number(get(r, "price")),
+                              isin=clean(get(r, "isin")), cusip=clean(get(r, "cusip"))))
+    return HoldingsFile(as_of, shares_outstanding, tuple(out))
 
 
 def _float(value: Decimal | None) -> float | None:
@@ -164,7 +194,7 @@ def _gate_errors(con, etf_ticker: str, holdings: HoldingsFile, digest: str) -> t
 
 def preview_etf_holdings(
     lake: Lake, source: Path | bytes, etf_ticker: str, fmt: str,
-    as_of: date | None = None, shares_outstanding: Decimal | None = None,
+    as_of: date | None = None, shares_outstanding: Decimal | None = None, mapping: dict | None = None,
 ) -> EtfPreview:
     if fmt not in FORMATS:
         raise ValueError(f"format must be one of {FORMATS}")
@@ -172,6 +202,10 @@ def preview_etf_holdings(
     text = raw.decode("utf-8-sig")
     if fmt == "ishares":
         holdings = parse_ishares(text)
+    elif fmt == "mapped":
+        if as_of is None or mapping is None:
+            raise ValueError("a mapped holdings file needs its mapping and as-of date")
+        holdings = parse_mapped(text, mapping, as_of, shares_outstanding)
     else:
         if as_of is None:
             raise ValueError("generic format needs an explicit as-of date")

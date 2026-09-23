@@ -88,3 +88,6 @@ CREATE TABLE IF NOT EXISTS position_lots (
     account_id VARCHAR, security_id VARCHAR, acquired_date DATE, shares DECIMAL(24, 8),
     cost DECIMAL(24, 8), as_of_date DATE, import_file_hash VARCHAR
 );
+-- Phase 5: a confirmed reading is remembered by the fingerprint of the file's header row.
+ALTER TABLE import_profiles ADD COLUMN IF NOT EXISTS kind VARCHAR;
+ALTER TABLE import_profiles ADD COLUMN IF NOT EXISTS header_fingerprint VARCHAR;

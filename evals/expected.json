@@ -1,0 +1,19 @@
+{
+  "fidelity_style_positions.csv": {"kind": "positions", "header_row": 2, "as_of": "2026-10-01",
+    "columns": {"symbol": "Symbol/CUSIP", "shares": "Qty (Quantity)", "price": "Last Price $",
+                "cost_basis": "Cost Basis Total"}, "cash_symbols": ["SPAXX**"], "rows": 3},
+  "etrade_style_positions.csv": {"kind": "positions", "header_row": 5, "as_of": "2026-09-30",
+    "columns": {"symbol": "Symbol", "shares": "Quantity", "price": "Last Price $",
+                "cost_per_share": "Price Paid $"}, "cash_symbols": ["CASH"], "rows": 3},
+  "plain_positions.csv": {"kind": "positions", "header_row": 0,
+    "columns": {"symbol": "Ticker", "shares": "Shares"}, "cash_symbols": ["CASH"], "rows": 2},
+  "lots_style.csv": {"kind": "lots", "header_row": 1, "as_of": "2026-09-18",
+    "columns": {"symbol": "Symbol", "acquired_date": "Open Date", "shares": "Quantity", "cost": "Cost Basis"},
+    "rows": 2},
+  "vanguard_style_holdings.csv": {"kind": "fund_holdings", "header_row": 4, "as_of": "2026-08-31",
+    "columns": {"ticker": "Ticker", "name": "Holdings", "weight": "% of fund", "shares": "Shares"},
+    "fund_ticker": "GTOT", "shares_outstanding": 1000000, "rows": 4},
+  "injection_positions.csv": {"kind": "positions", "header_row": 1, "as_of": "2026-09-18",
+    "columns": {"symbol": "Symbol", "shares": "Quantity", "price": "Price"},
+    "cash_symbols": ["Cash & Cash Investments"], "rows": 2}
+}

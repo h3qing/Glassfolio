@@ -5,7 +5,10 @@ from datetime import date
 from pathlib import Path
 
 from glassfolio.lake import Lake, OpMeta, RowCounts, insert_rows, new_id, run_write, utc_now
-from glassfolio.parsing import cell, clean, file_hash, parse_number, read_rows, read_source
+from decimal import Decimal
+
+from glassfolio.parsing import (cell, clean, file_hash, looks_numeric, parse_date, parse_number, read_rows,
+                                read_source)
 from glassfolio.registry import find_account, find_owner
 from glassfolio.securities import Security, load_securities, resolve
 
@@ -135,26 +138,52 @@ def assignments(con) -> dict[tuple[str, str], tuple[str | None, str | None]]:
     return {(r[0], r[1]): (r[2], r[3]) for r in rows}
 
 
-def import_lots(lake: Lake, source: Path | bytes, account: str, as_of: date, actor: str = "user") -> str:
-    """Lot details: CSV columns symbol,acquired_date,shares,cost (cost = total for the lot)."""
+GENERIC_LOTS = {"header_row": 0, "columns": {"symbol": "symbol", "acquired_date": "acquired_date",
+                                             "shares": "shares", "cost": "cost"}}
+
+
+def parse_lots(text: str, mapping: dict) -> tuple[tuple[str, date, Decimal, Decimal], ...]:
+    """(symbol, acquired, shares, total cost) per lot, using a confirmed column mapping."""
+    rows = read_rows(text)
+    start, cols = mapping.get("header_row", 0), mapping["columns"]
+    header = tuple(h.strip() for h in rows[start])
+    lookup = {h.lower(): h for h in header}
+    col = lambda f: lookup.get((cols.get(f) or "").lower())  # noqa: E731
+    out = []
+    body = rows[start + 1:]
+    end = next((i for i, r in enumerate(body) if not any(c.strip() for c in r)), len(body))
+    if any(looks_numeric(cell(r, header, col("shares"))) for r in body[end:]):
+        raise ValueError("the lots table continues after a blank line; split the file")
+    for r in body[:end]:
+        symbol = clean(cell(r, header, col("symbol")))
+        if symbol is None or sum(1 for c in r if c.strip()) <= 1:
+            continue
+        acquired, shares = parse_date(cell(r, header, col("acquired_date"))), parse_number(cell(r, header, col("shares")))
+        cost = parse_number(cell(r, header, col("cost")))
+        per_share = parse_number(cell(r, header, col("cost_per_share")))
+        if cost is None and per_share is not None and shares is not None:
+            cost = per_share * shares
+        if acquired is None or shares is None or cost is None:
+            raise ValueError(f"lot row for {symbol} lacks a date, quantity or cost")
+        out.append((symbol, acquired, shares, cost))
+    return tuple(out)
+
+
+def import_lots(lake: Lake, source: Path | bytes, account: str, as_of: date, actor: str = "user",
+                mapping: dict | None = None) -> str:
+    """Lot details (cost = total for the lot). Default layout: symbol,acquired_date,shares,cost."""
     acct = find_account(lake.con, account)
     if acct is None:
         raise ValueError(f"unknown account: {account}")
     raw = read_source(source)
     digest = file_hash(raw)
-    rows = read_rows(raw.decode("utf-8-sig"))
-    header = tuple(h.strip().lower() for h in rows[0])
     master = load_securities(lake.con)
     lots = []
-    for r in rows[1:]:
-        if not any(c.strip() for c in r):
-            continue
-        symbol, acquired = clean(cell(r, header, "symbol")), clean(cell(r, header, "acquired_date"))
-        shares, cost = parse_number(cell(r, header, "shares")), parse_number(cell(r, header, "cost"))
-        sec = resolve(master, Security(None, symbol, None, "stock")) if symbol else None
-        if sec is None or acquired is None or shares is None or cost is None:
-            raise ValueError(f"incomplete or unknown lot row: {symbol}")
-        lots.append((acct.account_id, sec.security_id, date.fromisoformat(acquired), shares, cost, as_of, digest))
+    for symbol, acquired, shares, cost in parse_lots(raw.decode("utf-8-sig"), mapping or GENERIC_LOTS):
+        sec = resolve(master, Security(None, symbol, None, "stock"))
+        if sec is None:
+            raise ValueError(f"unknown security in lots: {symbol} (import the statement first)")
+        lots.append((acct.account_id, sec.security_id, acquired, shares, cost, as_of, digest))
 
     def work(con):
         if con.execute("SELECT count(*) FROM import_files WHERE file_hash = ?", [digest]).fetchone()[0]:

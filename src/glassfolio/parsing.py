@@ -7,7 +7,7 @@ import re
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-_EMPTY = {"", "-", "--", "n/a", "N/A"}
+_EMPTY = {"", "-", "--", "—", "–", "n/a", "N/A"}
 _STRIP = re.compile(r"[$,%\s]")
 MAX_ABS = Decimal(10) ** 15
 
@@ -67,3 +67,42 @@ def clean(raw: str | None) -> str | None:
         return None
     text = raw.strip()
     return None if text in _EMPTY else text
+
+
+_DATE_FORMATS = ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%b %d, %Y", "%B %d, %Y", "%d-%b-%Y", "%d %b %Y",
+                 "%b %d %Y", "%Y/%m/%d")
+_DATE_IN_TEXT = re.compile(
+    r"\b(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4}|"
+    r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.? \d{1,2},? \d{4}|\d{1,2}-[A-Z][a-z]{2}-\d{4})")
+
+
+def parse_date(raw: str | None):
+    """Parse the date formats brokers use; None if it isn't one."""
+    from datetime import datetime
+
+    text = clean(raw)
+    if text is None:
+        return None
+    text = text.split("T")[0].split(" ")[0] if re.match(r"^\d{4}-\d{2}-\d{2}[T ]", text) else text
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(text.replace(".", ""), fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def find_date(text: str):
+    """First recognisable date inside free text such as a title line."""
+    for match in _DATE_IN_TEXT.finditer(text):
+        parsed = parse_date(match.group(1))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def looks_numeric(text: str | None) -> bool:
+    try:
+        return parse_number(text) is not None
+    except ValueError:
+        return False

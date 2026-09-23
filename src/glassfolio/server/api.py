@@ -15,16 +15,25 @@ from glassfolio.flows import list_inbox, resolve_flow
 from glassfolio.performance import returns
 from glassfolio.snapshots import value_history
 from glassfolio.tax import company_after_tax, portfolio_after_tax
+from glassfolio.tax_profiles import import_lots
+from glassfolio.understand import remember_reading
 from glassfolio.lake import Lake, list_ops, new_id
 from glassfolio.server.serialize import to_json
 
 MAX_UPLOAD = 20 * 1024 * 1024
+MAX_HELD = 20  # previews/uploads kept in memory; older ones expire
+
+
+def keep_recent(store: dict) -> dict:
+    """Newest MAX_HELD entries (dicts keep insertion order)."""
+    return dict(list(store.items())[-MAX_HELD:])
 
 
 @dataclass(frozen=True)
 class Pending:
-    kind: str  # statement | etf
+    kind: str  # statement | etf | lots
     preview: object
+    remember: tuple | None = None  # (reading, raw, broker): save the confirmed layout on commit
 
 
 class Api:
@@ -156,17 +165,31 @@ class Api:
         mapping = json.loads(b["mapping"]) if isinstance(b["mapping"], str) else b["mapping"]
         return JSONResponse({"profile_id": registry.add_profile(self.lake, b["broker"], mapping)})
 
+    @staticmethod
+    def statement_payload(p, skipped: tuple = ()) -> dict:
+        return {"kind": "positions",
+                "rows": [{"symbol": m.row.symbol, "description": m.row.description,
+                          "master_name": m.master_name, "status": m.status,
+                          "shares": m.row.shares, "price": m.row.price,
+                          "market_value": m.row.market_value} for m in p.matches],
+                "total_value": p.total_value, "duplicate": p.duplicate, "as_of": p.as_of,
+                "skipped": list(skipped),
+                "errors": ["this file was already imported"] if p.duplicate else []}
+
+    @staticmethod
+    def etf_payload(p) -> dict:
+        h = p.holdings
+        return {"kind": "fund_holdings", "etf": p.etf_ticker, "as_of": h.as_of, "count": len(h.rows),
+                "weight_sum": sum(r.weight or 0 for r in h.rows),
+                "shares_outstanding": h.shares_outstanding, "errors": list(p.errors),
+                "top": [{"ticker": r.ticker, "name": r.name, "weight": r.weight}
+                        for r in sorted(h.rows, key=lambda r: -(r.weight or 0))[:10]]}
+
     async def preview_statement(self, request: Request) -> JSONResponse:
         form, raw = await _upload(request)
         p = broker_import.preview_statement(self.lake, raw, form["account"], form["profile_id"],
                                             date.fromisoformat(form["as_of"]))
-        return self._hold("statement", p, {
-            "rows": [{"symbol": m.row.symbol, "description": m.row.description,
-                      "master_name": m.master_name, "status": m.status,
-                      "shares": m.row.shares, "price": m.row.price,
-                      "market_value": m.row.market_value} for m in p.matches],
-            "total_value": p.total_value, "duplicate": p.duplicate, "as_of": p.as_of,
-            "errors": ["this file was already imported"] if p.duplicate else []})
+        return self._hold("statement", p, self.statement_payload(p))
 
     async def preview_etf(self, request: Request) -> JSONResponse:
         form, raw = await _upload(request)
@@ -174,27 +197,31 @@ class Api:
         outstanding = Decimal(form["shares_outstanding"]) if form.get("shares_outstanding") else None
         p = etf_import.preview_etf_holdings(self.lake, raw, form["etf"], form.get("format") or
                                             "generic", as_of, outstanding)
-        h = p.holdings
-        return self._hold("etf", p, {
-            "etf": p.etf_ticker, "as_of": h.as_of, "count": len(h.rows),
-            "weight_sum": sum(r.weight or 0 for r in h.rows),
-            "shares_outstanding": h.shares_outstanding, "errors": p.errors,
-            "top": [{"ticker": r.ticker, "name": r.name, "weight": r.weight}
-                    for r in sorted(h.rows, key=lambda r: -(r.weight or 0))[:10]]})
+        return self._hold("etf", p, self.etf_payload(p))
 
-    def _hold(self, kind: str, preview, payload: dict) -> JSONResponse:
+    def _hold(self, kind: str, preview, payload: dict, remember: tuple | None = None) -> JSONResponse:
         token = new_id("pv")
-        self.pending[token] = Pending(kind, preview)
+        self.pending = keep_recent({**self.pending, token: Pending(kind, preview, remember)})
         return JSONResponse(to_json({"token": token, **payload}))
+
+    def _commit_one(self, pending: Pending) -> str:
+        if pending.kind == "statement":
+            op = broker_import.commit_statement(self.lake, pending.preview)
+        elif pending.kind == "lots":
+            raw, account, as_of, mapping = pending.preview
+            op = import_lots(self.lake, raw, account, as_of, mapping=mapping)
+        else:
+            op = etf_import.commit_etf_holdings(self.lake, pending.preview)
+        if pending.remember:  # only once the import has succeeded
+            remember_reading(self.lake, *pending.remember)
+        return op
 
     async def commit(self, request: Request) -> JSONResponse:
         token = (await request.json())["token"]
         pending = self.pending.pop(token, None)
         if pending is None:
             raise ValueError("preview expired; upload the file again")
-        commit = (broker_import.commit_statement if pending.kind == "statement"
-                  else etf_import.commit_etf_holdings)
-        return JSONResponse({"op_id": commit(self.lake, pending.preview)})
+        return JSONResponse({"op_id": self._commit_one(pending)})
 
     async def import_prices(self, request: Request) -> JSONResponse:
         _, raw = await _upload(request)

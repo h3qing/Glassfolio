@@ -82,6 +82,22 @@ export interface InboxItem {
   payload: Record<string, any>;
   pair_candidates: { item_id: string; account: string; amount: number }[];
 }
+export type FileKind = "positions" | "lots" | "fund_holdings";
+export interface Reading {
+  token: string; kind: FileKind; header_row: number; columns: Record<string, string | null>;
+  as_of: string | null; cash_symbols: string[]; skip_symbols: string[]; broker: string | null;
+  fund_ticker: string | null; shares_outstanding: number | null; weight_is_percent: boolean;
+  source: "saved" | "model" | "heuristic" | "user"; profile_id: string | null; header: string[];
+  fields: Record<FileKind, string[]>; errors: string[]; sample: string[][]; lines: string[];
+}
+export interface ModelInfo {
+  url: string; name: string | null; available: string[]; reachable: boolean;
+  evals: Record<string, { passed: number; total: number; seconds: number; failed: string[] }>;
+}
+export interface EvalRun {
+  model: string | null; passed: number; total: number; seconds: number;
+  results: { file: string; passed: boolean; problems: string[]; seconds: number }[];
+}
 export interface Slice { owner?: string; account_type?: string; broker?: string; account?: string }
 
 export class ApiError extends Error {}
@@ -135,4 +151,9 @@ export const api = {
     return call<T>(path, { method: "POST", body: form });
   },
   commit: (token: string) => post<{ op_id: string }>("/api/import/commit", { token }),
+  models: () => call<ModelInfo>("/api/assist/models"),
+  chooseModel: (url: string, name: string | null) => post("/api/assist/model", { url, name }),
+  evaluate: () => post<EvalRun>("/api/assist/eval", {}),
+  readFile: (file: File) => api.upload<Reading>("/api/assist/read", file, {}),
+  previewReading: (body: Record<string, unknown>) => post<Record<string, any>>("/api/assist/preview", body),
 };

@@ -266,6 +266,74 @@ def cmd_returns(args) -> None:
         print(f"! {r.open_questions} unexplained cash flows are unanswered; see `glassfolio inbox`")
 
 
+def cmd_config_model(args) -> None:
+    from glassfolio.llm import list_models
+    from glassfolio.settings import choose_model, load_settings
+
+    url = args.url or load_settings().url
+    available = list_models(url)
+    if args.name is None:
+        print(f"Server {url}: {', '.join(available) if available else 'not reachable'}")
+        print("Choose one with: glassfolio config model --name <model>")
+        return
+    s = choose_model(url, args.name or None)
+    note = "" if not s.name or s.name in available else " (not listed by the server yet)"
+    print(f"Using {s.name or 'no model (built-in rules)'} at {s.url}{note}")
+
+
+def cmd_eval_model(args) -> None:
+    from glassfolio.llm import OpenAICompatModel
+    from glassfolio.model_eval import run_eval, summary
+    from glassfolio.settings import configured_model, load_settings, record_eval
+
+    model = None if args.heuristic else (
+        OpenAICompatModel(args.model, args.url or load_settings().url) if args.model else configured_model())
+    if model is None and not args.heuristic:
+        sys.exit("no model configured; use --model NAME, --heuristic, or `glassfolio config model`")
+    results = run_eval(model)
+    for r in results:
+        print(f"  {ICONS['pass' if r.passed else 'fail']} {r.file:<32} {r.seconds:>6}s  {'; '.join(r.problems[:2])}")
+    s = summary(results)
+    print(f"{model.name if model else 'built-in rules'}: {s['passed']}/{s['total']} in {s['seconds']}s")
+    if model is not None:
+        record_eval(model.name, s)
+
+
+def cmd_import_file(args) -> None:
+    """Assisted import: the local model (or built-in rules) reads the file; you confirm."""
+    from dataclasses import replace
+
+    from glassfolio.settings import configured_model
+    from glassfolio.understand import read_file, remember_reading
+
+    lake = _lake()
+    raw = Path(args.file).read_bytes()
+    reading, errors = read_file(lake, raw, configured_model())
+    print(f"{reading.kind} ({reading.source}), header on line {reading.header_row}, as of {reading.as_of}")
+    for field, column in reading.columns.items():
+        if column:
+            print(f"  {field:<15} ← {printable(column)}")
+    if reading.cash_symbols:
+        print(f"  cash rows: {printable(', '.join(reading.cash_symbols))}")
+    if errors:
+        sys.exit("Can't read it cleanly: " + "; ".join(errors) + " — use the web UI to fix the columns.")
+    if reading.kind != "positions":
+        sys.exit("Lot details and fund holdings: use the web UI Import page to confirm them.")
+    as_of = args.as_of or reading.as_of
+    if as_of is None:
+        sys.exit("no date found in the file; pass --as-of")
+    p = broker_import.preview_statement(lake, raw, args.account, reading.profile_id, as_of, mapping=reading.mapping())
+    for m in p.matches:
+        print(f"  {m.status:<8} {printable(m.row.symbol):<12} {printable(m.master_name) or 'NEW SECURITY'}")
+    print(f"  total at the file's prices: {_money(float(p.total_value)).strip()}")
+    if p.duplicate:
+        sys.exit("This file was already imported.")
+    if _confirm(args, "Import?"):
+        if reading.source != "saved":
+            p = replace(p, profile_id=remember_reading(lake, reading, raw, args.broker))
+        print(broker_import.commit_statement(lake, p))
+
+
 def cmd_serve(args) -> None:
     from glassfolio.server.app import serve
 
@@ -311,6 +379,8 @@ def _parser() -> argparse.ArgumentParser:
     add("prices", cmd_import_prices, (("file",), {}), (("--source",), {"default": "manual"}),
         parent=imp)
     add("actions", cmd_import_actions, (("file",), {}), parent=imp)
+    add("file", cmd_import_file, (("file",), {}), (("--account",), {"required": True}),
+        (("--as-of",), {"type": day}), (("--broker",), {}), yes, parent=imp)
     add("lots", cmd_import_lots, (("file",), {}), (("--account",), {"required": True}),
         (("--as-of",), {"type": day, "required": True}), parent=imp)
     add("taxes", cmd_taxes, (("--as-of",), {"type": day, "default": date.today()}))
@@ -324,6 +394,8 @@ def _parser() -> argparse.ArgumentParser:
     add("restore", cmd_restore, (("op_id",), {}), yes)
     config = sub.add_parser("config").add_subparsers(required=True)
     add("tiingo", cmd_config_tiingo, parent=config)
+    add("model", cmd_config_model, (("--url",), {"help": "OpenAI-compatible local server"}),
+        (("--name",), {"help": "model to use; empty string for none"}), parent=config)
     prices = sub.add_parser("prices").add_subparsers(required=True)
     add("fetch", cmd_prices_fetch, (("--start",), {"type": day, "required": True}),
         (("--end",), {"type": day, "default": date.today()}),
@@ -344,6 +416,8 @@ def _parser() -> argparse.ArgumentParser:
         (("--end",), {"type": day, "default": date.today()}))
     add("returns", cmd_returns, (("--start",), {"type": day, "required": True}),
         (("--end",), {"type": day, "default": date.today()}))
+    add("eval-model", cmd_eval_model, (("--model",), {}), (("--url",), {}),
+        (("--heuristic",), {"action": "store_true", "help": "evaluate the built-in rules instead"}))
     add("serve", cmd_serve, (("--port",), {"type": int, "default": 8765}),
         (("--no-browser",), {"action": "store_true"}))
     return p

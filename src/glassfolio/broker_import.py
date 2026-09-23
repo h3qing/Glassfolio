@@ -10,7 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from glassfolio.lake import Lake, OpMeta, RowCounts, run_write, utc_now
-from glassfolio.parsing import cell, clean, file_hash, parse_number, read_rows, read_source
+from glassfolio.parsing import cell, clean, file_hash, looks_numeric, parse_number, read_rows, read_source
 from glassfolio.registry import find_account, load_profile
 from glassfolio.securities import Security, ensure_securities, load_securities, resolve
 
@@ -44,7 +44,7 @@ class RowMatch:
 class StatementPreview:
     file_hash: str
     account_id: str
-    profile_id: str
+    profile_id: str | None
     as_of: date
     matches: tuple[RowMatch, ...]
     duplicate: bool
@@ -60,8 +60,12 @@ def _parse_row(row, header, mapping) -> StatementRow | None:
     symbol = clean(cell(row, header, cols["symbol"]))
     if symbol is None or symbol in mapping.get("skip_symbols", ()):
         return None
+    if sum(1 for c in row if c.strip()) <= 1 and symbol not in mapping.get("cash_symbols", ()):
+        return None  # a footer or note line, not a holding
     get = lambda key: parse_number(cell(row, header, cols.get(key)))  # noqa: E731
     cost = get("cost_basis")
+    if cost is None and get("cost_per_share") is not None and get("shares") is not None:
+        cost = get("cost_per_share") * get("shares")
     if symbol in mapping.get("cash_symbols", ()):
         amount = get("market_value") if get("market_value") is not None else get("shares")
         return StatementRow(symbol, None, amount or Decimal(0), Decimal(1), None, True)
@@ -84,9 +88,22 @@ def parse_statement(text: str, mapping: dict) -> tuple[StatementRow, ...]:
         raise ValueError(f"mapping lacks columns: {missing}")
     rows = read_rows(text)
     header_row = mapping.get("header_row", 0)
+    if not 0 <= header_row < len(rows):
+        raise ValueError("the header row is outside the file")
     header = tuple(h.strip() for h in rows[header_row])
-    parsed = (_parse_row(r, header, mapping) for r in rows[header_row + 1:] if any(r))
+    body = rows[header_row + 1:]
+    end = next((i for i, r in enumerate(body) if not any(c.strip() for c in r)), len(body))
+    check_nothing_after_blank(body[end:], header, mapping["columns"].get("shares"))
+    parsed = (_parse_row(r, header, mapping) for r in body[:end])  # a blank line ends the table
     return tuple(p for p in parsed if p is not None)
+
+
+def check_nothing_after_blank(rest, header, numeric_column: str | None) -> None:
+    """A blank line ends a table; refuse files where holdings continue after it."""
+    after = [r for r in rest if looks_numeric(cell(r, header, numeric_column))]
+    if after:
+        raise ValueError(f"the table continues after a blank line ({len(after)} more rows); "
+                         "files with several sections aren't supported yet, so split the file")
 
 
 def _match(master, row: StatementRow) -> RowMatch:
@@ -105,14 +122,18 @@ def _already_imported(con, digest: str) -> bool:
 
 
 def preview_statement(
-    lake: Lake, source: Path | bytes, account: str, profile_id: str, as_of: date
+    lake: Lake, source: Path | bytes, account: str, profile_id: str | None, as_of: date,
+    mapping: dict | None = None,
 ) -> StatementPreview:
+    """`mapping` (e.g. a reading the user is confirming) takes the place of a saved profile."""
     acct = find_account(lake.con, account)
     if acct is None:
         raise ValueError(f"unknown account: {account}")
     raw = read_source(source)
     digest = file_hash(raw)
-    rows = parse_statement(raw.decode("utf-8-sig"), load_profile(lake.con, profile_id))
+    if mapping is None and profile_id is None:
+        raise ValueError("choose a saved layout or confirm a reading of the file")
+    rows = parse_statement(raw.decode("utf-8-sig"), mapping or load_profile(lake.con, profile_id))
     if not any(r.is_cash for r in rows):
         raise ValueError("statement has no cash row; buys and sells would look like deposits")
     master = load_securities(lake.con)

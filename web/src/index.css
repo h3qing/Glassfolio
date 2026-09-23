@@ -261,6 +261,12 @@ tr.clickable:hover + tr td, tr.selected + tr td { border-top-color: transparent;
   color: var(--ink-2); cursor: pointer; background: var(--sheet-2); transition: border-color .2s ease, background-color .2s ease;
 }
 .drop.over { border-color: var(--accent); background: var(--select); color: var(--ink); }
+.drop.big { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 42px 24px; }
+.drop.big .icon { color: var(--accent); }
+.drop.big strong { font-size: 17px; color: var(--ink); }
+.source-badge { display: flex; align-items: center; gap: 8px; margin: 0 6px; color: var(--ink-2); font-size: 14px; }
+.source-badge .icon { color: var(--accent); }
+.picker td { padding: 6px 12px; }
 .empty { color: var(--ink-2); max-width: 52ch; margin: 0 6px 14px; }
 .badge { margin-left: auto; background: var(--warn); color: #fff; border-radius: var(--r-capsule); padding: 0 7px; font-size: 12px; font-weight: 650; line-height: 18px; }
 

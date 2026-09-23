@@ -100,3 +100,14 @@ def test_owner_with_state_and_taxes(cli):
     assert "not tax advice" in out and "assumed" in out
     with pytest.raises(SystemExit, match="bracket"):
         cli("owner", "add", "newyorker", "--state", "NY")
+
+
+def test_assisted_import_and_eval_without_model(cli):
+    from conftest import GOLDEN
+    evals = GOLDEN.parent.parent / "evals" / "files"
+    cli("owner", "add", "alice")
+    cli("account", "add", "A", "--owner", "alice", "--broker", "E", "--type", "taxable")
+    out = cli("import", "file", evals / "etrade_style_positions.csv", "--account", "A", "--broker", "E*TRADE", "-y")
+    assert "heuristic" in out and "Price Paid $" in out and "op_" in out
+    out = cli("eval-model", "--heuristic")
+    assert "built-in rules: 6/6" in out

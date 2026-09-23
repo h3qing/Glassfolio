@@ -17,6 +17,12 @@ D = date(2026, 9, 18)
 T1 = date(2026, 9, 30)
 
 
+@pytest.fixture(autouse=True)
+def isolated_home(tmp_path_factory, monkeypatch):
+    """Never touch the real data folder or settings from tests."""
+    monkeypatch.setenv("GLASSFOLIO_HOME", str(tmp_path_factory.mktemp("home")))
+
+
 @pytest.fixture
 def lake(tmp_path):
     return open_lake(tmp_path / "home", TEST_KEY)

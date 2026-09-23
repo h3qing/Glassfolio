@@ -45,19 +45,34 @@ Keychain.
 ## Quick start (your own data)
 
 ```bash
-uv sync
-uv run glassfolio init                      # key → macOS Keychain; prints a recovery key
-uv run glassfolio owner add me
-uv run glassfolio account add "Schwab Taxable" --owner me --broker Schwab --type taxable
-uv run glassfolio profile add Schwab mapping.json          # column mapping, see below
-uv run glassfolio import etf QQQ_holdings.csv --etf QQQ --as-of 2026-09-17 --shares-outstanding 1000000
-uv run glassfolio import etf IVV_holdings.csv --etf IVV --format ishares
-uv run glassfolio import statement positions.csv --account "Schwab Taxable" --profile prof_… --as-of 2026-09-18
-uv run glassfolio import prices closes.csv                 # date,ticker,close
-uv run glassfolio exposure --ticker NVDA --group-by fund
-uv run glassfolio check --account "Schwab Taxable" --reported-total 123456.78
-uv run glassfolio ops                                      # audit log;  `restore <op_id>` rolls back
-uv run glassfolio serve                                    # web UI (build once: pnpm -C web install && pnpm -C web build)
+uv sync && pnpm -C web install && pnpm -C web build
+uv run glassfolio init              # key → macOS Keychain; prints a recovery key to keep offline
+uv run glassfolio serve             # opens the app on 127.0.0.1
+```
+
+1. **Settings:** choose your local model. Glassfolio works with any OpenAI-compatible
+   server on this Mac: Ollama, LM Studio, llama.cpp, or an MLX server. Click **Test this
+   model** to check it on synthetic sample files. With no model, built-in rules read the
+   files instead, and you can correct them.
+2. **Accounts:** add people (with their state, for taxes) and their accounts. Use
+   nicknames only.
+3. **Import:** drop any export: a broker's positions, lot details, or a fund's holdings.
+   The local model works out the layout (which row is the header, which column is
+   which, the date, the cash rows). You check it, preview the security names, and
+   import. Once confirmed, that broker's exports are recognized instantly next time.
+4. **Reconcile:** enter each broker's total. Trust the numbers once they match.
+
+The model only proposes a layout (JSON). Fixed code parses the file, checks it against
+itself (columns exist, shares × price matches the value, a cash row is present) and
+shows you a preview. Data never leaves the machine, because the model client refuses
+any non-loopback address.
+
+Command-line equivalents:
+
+```bash
+uv run glassfolio config model --name qwen3.6:27b          # or any model your local server lists
+uv run glassfolio eval-model                               # known-answer test of the configured model
+uv run glassfolio import file positions.csv --account "Schwab Taxable"
 ```
 
 ### Taxes (planning estimates, not tax advice)

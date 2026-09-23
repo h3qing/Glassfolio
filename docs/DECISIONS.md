@@ -170,3 +170,53 @@ Rates are planning assumptions, not tax advice. The UI says so wherever it shows
 - **Attribution stays before tax.** After-tax attribution would mix tax changes
   into the price effect. The What changed view shows after-tax start and end
   values instead.
+
+## Phase 5 (first part): LLM-assisted import
+
+The owner rejected hand-written column mappings as "too old school". So files are
+read by a local model, with fixed code checking whatever it proposes.
+
+- **Model-agnostic.** The client speaks the OpenAI-compatible API (Ollama, LM
+  Studio, llama.cpp, MLX servers, vLLM). You choose the server URL and model in
+  Settings, and nothing is tied to one model.
+  - Structured output is negotiated: JSON schema, then JSON mode, then JSON
+    pulled out of free text.
+  - Request fields a server rejects (for example `reasoning_effort`) are dropped
+    and the request retried.
+- **Loopback only.** The model URL must resolve to loopback. Proxies and redirects
+  are ignored.
+- **The model returns configuration only:** kind, header row, which header holds
+  each field, date, cash and summary rows. The file's content is marked as
+  untrusted data in the prompt.
+- **Every answer is validated against the file itself.**
+  - Proposed columns must exist; invented ones are dropped.
+  - The header row snaps to the line that actually contains the proposed column
+    names, since small models miscount lines.
+  - Field mix-ups across kinds are accepted (e.g. `cost_basis` for lots' `cost`).
+  - Shares × price must match market value.
+  - A cash row must exist, and "cash" rows must look like cash by symbol or
+    price, never by description, which is attacker-controlled text.
+  - On failure, the validator's complaints go back to the model for one retry;
+    then the heuristics take over.
+- **Heuristics** (keyword matching) are the no-model tier. They read all 6
+  synthetic evaluation files correctly.
+- **Layouts are remembered by header fingerprint** (a hash of the normalized header
+  row), stored with the import profile, so each broker's format needs the model
+  only once. The date is re-read from each new file.
+- **Evaluation set** (`evals/`): six synthetic files in different broker and fund
+  styles, including a prompt-injection file. `glassfolio eval-model` runs it, and
+  the score is saved in settings.json (no data in it). Results on the owner's Mac
+  on 2026-09-23:
+
+  | Model | Result |
+  | --- | --- |
+  | qwen3.6:27b | 6/6 |
+  | qwen2.5:3b | 0/6 |
+  | llama3.2:3b | 0/6 |
+
+  The 3B models fail; the UI recommends 8B or larger, per spec §8.
+- **Parser tolerance** for real exports: a blank line ends the holdings table,
+  single-cell footer lines are ignored, and cost can come from cost per share ×
+  shares.
+- **Not yet in phase 5:** the chat assistant, the MCP tool server, and model-driven
+  answers to inbox questions.

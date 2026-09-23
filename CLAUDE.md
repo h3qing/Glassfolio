@@ -25,9 +25,12 @@ Requirements: `docs/SPEC.md` (Chinese). Decisions and deviations: `docs/DECISION
 (identity resolution), `broker_import.py`, `etf_import.py`, `market_import.py`,
 `registry.py` (owners/accounts/profiles/proxies), `sql/exposure.sql` (look-through),
 `exposure.py` (incl. `Slice` filters), `recon.py`, `cli.py`,
-`server/` (Starlette API + localhost guards). Frontend: `web/` (Vite + React + TS;
+`server/` (Starlette API + localhost guards), `llm.py` (local model client,
+loopback-only), `understand.py` (read any export: saved layout → model → heuristics,
+always validated), `model_eval.py` + `evals/` (known-answer model tests), `tax*.py`. Frontend: `web/` (Vite + React + TS;
 glass on frames, near-solid sheets under numbers, tabular numerals).
 
+- Model tests: `uv run glassfolio eval-model [--model NAME | --heuristic]` (synthetic files only)
 - Web: `pnpm -C web build`, then `uv run glassfolio serve`; `./scripts/demo.sh --ui` for synthetic data.
 
 Formulas in spec §4 and checks in §11 need tests on the golden dataset, with
