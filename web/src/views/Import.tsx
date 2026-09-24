@@ -10,7 +10,11 @@ const FIELD_LABEL: Record<string, string> = {
   market_value: "Market value", cost_basis: "Total cost", cost: "Total cost", cost_per_share: "Cost per share",
   acquired_date: "Purchase date", weight: "Weight", asset_class: "Asset class", isin: "ISIN", cusip: "CUSIP",
 };
+const METHOD: Record<string, string> = {
+  "pdf-text": "the PDF's text", ocr: "on-device text recognition", mixed: "the PDF's text and text recognition",
+};
 const SOURCE: Record<Reading["source"], string> = {
+  document: "Transcribed from your document; every value was found on its row's line",
   saved: "Recognized: you confirmed this layout before",
   model: "Read by your local model",
   heuristic: "Read with built-in rules (no model)",
@@ -23,10 +27,10 @@ function DropZone({ onFile, busy }: { onFile: (f: File) => void; busy: string | 
     <label className={`drop big${over ? " over" : ""}`}
       onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
       onDrop={(e) => { e.preventDefault(); setOver(false); const f = e.dataTransfer.files[0]; if (f) onFile(f); }}>
-      <input type="file" accept=".csv,text/csv,text/plain" hidden onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
+      <input type="file" accept=".csv,text/csv,text/plain,.pdf,application/pdf,image/*,.heic" hidden onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
       <Icon name="sparkle" size={26} />
       <strong>{busy ?? "Drop any export here"}</strong>
-      <span className="muted">{busy ? "The file stays on this Mac." : "Positions, lot details or a fund's holdings, from any broker or fund company."}</span>
+      <span className="muted">{busy ? "The file stays on this Mac." : "A CSV, a PDF statement or a screenshot: positions, lot details or a fund's holdings."}</span>
     </label>
   );
 }
@@ -64,11 +68,23 @@ function Understood({ reading, meta, account, setAccount, onChange }: {
   const list = (xs: string[]) => xs.join(", ");
   return (
     <section className="sheet">
-      <p className="source-badge"><Icon name={reading.source === "saved" ? "reconcile" : "sparkle"} size={16} /> {SOURCE[reading.source]}</p>
-      <div className="row" style={{ margin: "10px 0 14px" }}>
-        <Segmented label="Kind of file" value={reading.kind} onChange={(k) => onChange({ ...reading, kind: k, source: "user" })}
-          options={(Object.keys(KIND_LABEL) as FileKind[]).map((k) => ({ id: k, label: KIND_LABEL[k] }))} />
-      </div>
+      <p className="source-badge"><Icon name={reading.source === "saved" ? "reconcile" : "sparkle"} size={16} /> {SOURCE[reading.source]}
+        {reading.document && <> (read with {METHOD[reading.document.method] ?? reading.document.method})</>}</p>
+      {reading.document && !reading.document.warnings.some((w) => w.includes("total")) &&
+        <p className="status pass" style={{ margin: "6px 6px 0" }}>✓ The rows add up to the total printed in the document</p>}
+      {reading.document?.warnings.map((w) => <p key={w} className="status warn" style={{ margin: "6px 6px 0" }}>! {w}</p>)}
+      {reading.document && reading.document.sources.length > 0 && (
+        <details className="sources">
+          <summary>Where each row came from</summary>
+          {reading.document.sources.map((s) => <p key={s.symbol}><strong>{s.symbol}</strong> <code className="amount">{s.line}</code></p>)}
+        </details>
+      )}
+      {reading.source === "document" ? <p className="muted" style={{ margin: "10px 6px 14px" }}>{KIND_LABEL[reading.kind]}</p> : (
+        <div className="row" style={{ margin: "10px 0 14px" }}>
+          <Segmented label="Kind of file" value={reading.kind} onChange={(k) => onChange({ ...reading, kind: k, source: "user" })}
+            options={(Object.keys(KIND_LABEL) as FileKind[]).map((k) => ({ id: k, label: KIND_LABEL[k] }))} />
+        </div>
+      )}
       <div className="row">
         {reading.kind !== "fund_holdings" && (
           <label className="field">Account
@@ -101,10 +117,12 @@ function Understood({ reading, meta, account, setAccount, onChange }: {
         </div>
       )}
       {reading.errors.length > 0 && <ul className="error" style={{ margin: "12px 6px 0" }}>{reading.errors.map((e) => <li key={e}>{e}</li>)}</ul>}
-      <button className="btn" style={{ marginTop: 14 }} onClick={() => setShowColumns((s) => !s)} aria-expanded={showColumns}>
-        {showColumns ? "Hide columns" : "Check columns"}
-      </button>
-      {showColumns && <div style={{ marginTop: 12 }}><ColumnPicker reading={reading} onChange={onChange} /></div>}
+      {reading.source !== "document" && <>
+        <button className="btn" style={{ marginTop: 14 }} onClick={() => setShowColumns((s) => !s)} aria-expanded={showColumns}>
+          {showColumns ? "Hide columns" : "Check columns"}
+        </button>
+        {showColumns && <div style={{ marginTop: 12 }}><ColumnPicker reading={reading} onChange={onChange} /></div>}
+      </>}
     </section>
   );
 }
@@ -154,7 +172,9 @@ export default function ImportView({ meta, onDone, onSettings }: { meta: Meta; a
 
   const read = (file: File) => {
     setReading(null); setPreview(null); setMessage(null); setError(null);
-    setBusy(model?.name ? `Reading ${file.name} with ${model.name}…` : `Reading ${file.name}…`);
+    const isDoc = /\.(pdf|png|jpe?g|heic|tiff?|gif)$/i.test(file.name) || /^(image\/|application\/pdf)/.test(file.type);
+    setBusy(isDoc ? `Reading ${file.name} on this Mac, then transcribing with ${model?.name ?? "your local model"}… (up to a minute)`
+      : model?.name ? `Reading ${file.name} with ${model.name}…` : `Reading ${file.name}…`);
     api.readFile(file).then((r) => { setReading(r); setBusy(null); }).catch(fail);
   };
   const previewIt = () => reading && api.previewReading({

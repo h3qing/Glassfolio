@@ -195,6 +195,7 @@ def _gate_errors(con, etf_ticker: str, holdings: HoldingsFile, digest: str) -> t
 def preview_etf_holdings(
     lake: Lake, source: Path | bytes, etf_ticker: str, fmt: str,
     as_of: date | None = None, shares_outstanding: Decimal | None = None, mapping: dict | None = None,
+    document: bytes | None = None,
 ) -> EtfPreview:
     if fmt not in FORMATS:
         raise ValueError(f"format must be one of {FORMATS}")
@@ -210,7 +211,7 @@ def preview_etf_holdings(
         if as_of is None:
             raise ValueError("generic format needs an explicit as-of date")
         holdings = parse_generic(text, as_of, shares_outstanding)
-    digest = file_hash(raw)
+    digest = file_hash(document if document is not None else raw)  # a PDF/image: its own hash
     errors = _gate_errors(lake.con, etf_ticker, holdings, digest)
     return EtfPreview(etf_ticker.upper(), f"file:{fmt}", digest, holdings, errors)
 

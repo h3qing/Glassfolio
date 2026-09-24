@@ -339,3 +339,29 @@ def test_chat_confirm_refuses_questions_already_answered(client, monkeypatch):
 
 def test_chat_rejects_malformed_body(client):
     assert client.post("/api/chat", json=["x"]).status_code == 400
+
+
+DOCS = GOLDEN.parent.parent / "evals" / "documents"
+
+
+def test_pdf_statement_is_read_previewed_and_stored_as_the_original(client, monkeypatch):
+    import glassfolio.server.assist_api as assist_api
+    from test_document_reader import GOOD, Scripted
+    monkeypatch.setattr(assist_api, "configured_model", lambda: Scripted(GOOD))
+    pdf = (DOCS / "statement.pdf").read_bytes()
+    read = client.post("/api/assist/read", files={"file": ("s.pdf", pdf)}).json()
+    assert read["source"] == "document" and read["document"]["method"] == "pdf-text"
+    preview = client.post("/api/assist/preview", json={"token": read["token"], "account": "Alice Roth",
+                                                      "reading": {}}).json()
+    assert {r["symbol"] for r in preview["rows"]} == {"NVDA", "QQQ", "GFOF", "Cash"}
+    before = len(client.get("/api/meta").json()["profiles"])
+    assert client.post("/api/import/commit", json={"token": preview["token"]}).status_code == 200
+    assert len(client.get("/api/meta").json()["profiles"]) == before  # no layout remembered for documents
+    again = client.post("/api/assist/read", files={"file": ("s.pdf", pdf)}).json()
+    dup = client.post("/api/assist/preview", json={"token": again["token"], "account": "Alice Roth", "reading": {}})
+    assert "already imported" in str(dup.json())  # the PDF itself is deduplicated
+
+
+def test_pdf_without_a_model_explains(client):
+    r = client.post("/api/assist/read", files={"file": ("s.pdf", (DOCS / "statement.pdf").read_bytes())})
+    assert r.status_code == 422 and "local model" in r.json()["error"]

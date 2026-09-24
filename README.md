@@ -86,9 +86,14 @@ uv run glassfolio serve             # opens the app on 127.0.0.1
 2. **Accounts:** add people (with their state, for taxes) and their accounts. Use
    nicknames only.
 3. **Import:** drop any export: a broker's positions, lot details, or a fund's holdings.
-   The local model works out the layout (which row is the header, which column is
-   which, the date, the cash rows). You check it, preview the security names, and
-   import. Once confirmed, that broker's exports are recognized instantly next time.
+   - **CSV:** the local model works out the layout (which row is the header, which
+     column is which, the date, the cash rows). You check it, preview the security
+     names, and import. Once confirmed, that broker's exports are recognized
+     instantly next time.
+   - **PDF statement or screenshot:** the text is read on your Mac (Apple's OCR for
+     images and scans), and the model transcribes the holdings. Every number must
+     appear in the document, and the rows must add up to its total, before you see
+     the preview.
 4. **Reconcile:** enter each broker's total. Trust the numbers once they match.
 
 The model only proposes a layout (JSON). Fixed code parses the file, checks it against

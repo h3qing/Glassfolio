@@ -350,3 +350,51 @@ read by a local model, with fixed code checking whatever it proposes.
 - **Not done:** Developer ID signing and notarization (needs an Apple developer
   account), auto-update, and Windows and Linux (the Keychain and Touch ID code is
   macOS-only).
+
+## PDF and image import
+
+Owner feedback: many brokers offer no CSV. Everything stays on this Mac.
+
+- **Extraction** (`extract.py`):
+  - A PDF text layer is read with pdfplumber, keeping the page layout.
+  - Scanned pages and images (PNG, JPEG, HEIC, TIFF) go through Apple's on-device
+    Vision OCR. Language correction is off so digits aren't "corrected", and lines
+    are rebuilt by position so a table row stays on one line.
+  - The file type is detected from its content, not its name.
+  - Caps: 20 pages and 40,000 characters. Rendered pages and images are capped at
+    25 megapixels (a hostile 100,000-point page previously used 20 GB).
+  - Damaged, encrypted or hostile files become a clear error, not a crash.
+  - OCR undoes page tilt before grouping words into lines, using the median slope of
+    Vision's text boxes, so a slightly skewed scan doesn't mix rows.
+  - The preview shows the document line each row came from, so text hidden in the
+    PDF (white or clipped) becomes visible.
+- **Transcription** (`document_reader.py`):
+  - The local model copies the holdings table **as printed strings**. It never
+    computes, and it can use any text model, since vision isn't required.
+  - Checks against the extracted text, tightened after review (an earlier version
+    only asked whether a number appeared *anywhere*, so a row could borrow the
+    account number as its quantity):
+    - **Line-level grounding:** each row's symbol must be a printed token (exact
+      case), with every value of that row on the same line (or the next, for
+      wrapped rows). No two rows may use the same line.
+    - Values must follow the header's column order, which catches a quantity/price
+      swap.
+    - The total comes from lines the code itself finds (Total, Account value) and
+      must match to the cent. It's never taken from the model, so the model can't
+      dodge it by leaving the total out.
+    - Signs are compared as signed numbers.
+    - A "cash" row with a quantity and a non-1 price is refused.
+    - The as-of date must be printed next to "as of", "ending" or similar, otherwise
+      it must be the latest date printed.
+    - For fund documents, the fund's ticker and each weight must be printed.
+  - One retry with the complaints, then the file is refused.
+  - The result becomes a small CSV and goes through the usual preview → confirm →
+    import. The **original** document is what gets hashed (duplicate detection)
+    and stored, encrypted.
+  - A document's table is never remembered as a broker layout.
+- **Scope:** positions statements and fund holdings (such as 401(k) fact sheets).
+  Lot details from PDFs come later.
+- **Evaluation** (`evals/documents/`): a text PDF, a screenshot, a scanned PDF and
+  a fact sheet. qwen3.6:27b: 4/4, about 35 s each.
+- **Packaging** adds pdfplumber, pypdfium2 and the pyobjc Vision/Quartz bindings:
+  the app is 90 MB, the DMG 68 MB.

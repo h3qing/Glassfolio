@@ -21,6 +21,7 @@ echo "==> Analysis service (PyInstaller)"
 uv run --locked --quiet pyinstaller --noconfirm --clean --onefile --name glassfolio-server \
   --distpath build/sidecar --workpath build/pyinstaller --specpath build \
   --collect-submodules uvicorn --collect-submodules glassfolio --collect-data glassfolio \
+  --collect-all pypdfium2 --collect-all pdfplumber --hidden-import Vision --hidden-import Quartz \
   --add-data "$PWD/web/dist:web/dist" --add-data "$PWD/evals:evals" \
   --add-data "$PWD/tests/golden:tests/golden" \
   --log-level WARN scripts/sidecar_entry.py

@@ -123,14 +123,17 @@ def _already_imported(con, digest: str) -> bool:
 
 def preview_statement(
     lake: Lake, source: Path | bytes, account: str, profile_id: str | None, as_of: date,
-    mapping: dict | None = None,
+    mapping: dict | None = None, document: bytes | None = None,
 ) -> StatementPreview:
-    """`mapping` (e.g. a reading the user is confirming) takes the place of a saved profile."""
+    """`mapping` (e.g. a reading the user is confirming) takes the place of a saved profile.
+    `document`: the original PDF/image the rows were read from; it is what gets
+    deduplicated and stored (encrypted), while `source` holds the rows as CSV."""
     acct = find_account(lake.con, account)
     if acct is None:
         raise ValueError(f"unknown account: {account}")
     raw = read_source(source)
-    digest = file_hash(raw)
+    stored = document if document is not None else raw
+    digest = file_hash(stored)
     if mapping is None and profile_id is None:
         raise ValueError("choose a saved layout or confirm a reading of the file")
     rows = parse_statement(raw.decode("utf-8-sig"), mapping or load_profile(lake.con, profile_id))
@@ -139,7 +142,7 @@ def preview_statement(
     master = load_securities(lake.con)
     duplicate = _already_imported(lake.con, digest)
     matches = tuple(_match(master, r) for r in rows)
-    return StatementPreview(digest, acct.account_id, profile_id, as_of, matches, duplicate, raw)
+    return StatementPreview(digest, acct.account_id, profile_id, as_of, matches, duplicate, stored)
 
 
 def _ref(m: RowMatch) -> Security:

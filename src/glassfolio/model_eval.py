@@ -63,6 +63,51 @@ def run_eval(model: ChatModel | None, directory: Path = EVALS) -> tuple[EvalResu
     return tuple(results)
 
 
+def check_document(doc, expected: dict) -> tuple[str, ...]:
+    """A document reading against its known answer (quantities, weights, cash, date)."""
+    import csv
+    import io
+
+    from glassfolio.parsing import parse_number
+
+    if doc.reading is None:
+        return doc.errors or ("no reading",)
+    r = doc.reading
+    rows = list(csv.DictReader(io.StringIO(doc.table.decode())))
+    problems = [] if r.kind == expected["kind"] else [f"kind {r.kind} ≠ {expected['kind']}"]
+    if r.as_of is None or r.as_of.isoformat() != expected["as_of"]:
+        problems.append(f"date {r.as_of} ≠ {expected['as_of']}")
+    col = "Symbol" if r.kind == "positions" else "Ticker"
+    by_symbol = {row[col]: row for row in rows}
+    for symbol, quantity in expected.get("rows", {}).items():
+        got = parse_number(by_symbol.get(symbol, {}).get("Quantity"))
+        if got is None or float(got) != quantity:
+            problems.append(f"{symbol} quantity {got} ≠ {quantity}")
+    for symbol, weight in expected.get("weights", {}).items():
+        got = parse_number(by_symbol.get(symbol, {}).get("Weight"))
+        if got is None or float(got) != weight:
+            problems.append(f"{symbol} weight {got} ≠ {weight}")
+    if "cash" in expected:
+        cash = [parse_number(row["Market Value"]) for row in rows if row[col] in r.cash_symbols]
+        if [float(c) for c in cash] != [expected["cash"]]:
+            problems.append(f"cash {cash} ≠ {expected['cash']}")
+    if expected.get("fund_ticker") and r.fund_ticker != expected["fund_ticker"]:
+        problems.append(f"fund ticker {r.fund_ticker} ≠ {expected['fund_ticker']}")
+    return tuple(problems)
+
+
+def run_document_eval(model: ChatModel | None, directory: Path = EVALS / "documents") -> tuple[EvalResult, ...]:
+    from glassfolio.document_reader import read_document
+
+    expected = json.loads((directory / "expected.json").read_text())
+    results = []
+    for name, want in sorted(expected.items()):
+        started = time.monotonic()
+        problems = check_document(read_document((directory / name).read_bytes(), model), want)
+        results.append(EvalResult(name, not problems, problems, round(time.monotonic() - started, 1)))
+    return tuple(results)
+
+
 def summary(results: tuple[EvalResult, ...]) -> dict:
     return {"passed": sum(r.passed for r in results), "total": len(results),
             "seconds": round(sum(r.seconds for r in results), 1),

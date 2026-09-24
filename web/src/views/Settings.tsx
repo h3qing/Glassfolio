@@ -40,7 +40,7 @@ export default function SettingsView() {
           <button className="btn primary" disabled={!info.name || busy} onClick={() => {
             setBusy(true); setError(null);
             api.evaluate().then((r) => { setRun(r); load(); }).catch((e) => setError(e.message)).finally(() => setBusy(false));
-          }}>{busy ? "Testing… (a minute or two)" : "Test this model"}</button>
+          }}>{busy ? "Testing… (a few minutes)" : "Test this model"}</button>
         </div>
         {!info.reachable && <p className="status warn" style={{ margin: "12px 6px 0" }}>! No local model server answered at this address. Start Ollama or LM Studio, or leave the model on None.</p>}
         {score && !run && <p className="muted" style={{ margin: "12px 6px 0" }}>Last test: {score.passed} of {score.total} sample files read correctly in {score.seconds}s.</p>}

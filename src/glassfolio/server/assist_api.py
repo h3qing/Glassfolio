@@ -16,11 +16,13 @@ from starlette.responses import JSONResponse
 from glassfolio import broker_import, etf_import
 from glassfolio.lake import Lake, new_id
 from glassfolio.llm import list_models
-from glassfolio.model_eval import run_eval, summary
+from glassfolio.model_eval import run_document_eval, run_eval, summary
 from glassfolio.parsing import clean, parse_number, read_rows
 from glassfolio.server.serialize import to_json
 from glassfolio.settings import choose_model, configured_model, load_settings, record_eval, set_touch_id
 from glassfolio.tax_profiles import parse_lots
+from glassfolio.document_reader import read_document
+from glassfolio.extract import detect
 from glassfolio.understand import FIELDS, KINDS, Reading, read_file, validate
 from glassfolio.server.api import keep_recent
 
@@ -29,8 +31,9 @@ SAMPLE_ROWS = 6
 
 @dataclass(frozen=True)
 class Upload:
-    raw: bytes
+    raw: bytes                      # rows the importer parses (CSV)
     reading: Reading
+    document: bytes | None = None   # the original PDF/image, if the rows were read from one
 
 
 def _reading_json(reading: Reading, raw: bytes, errors) -> dict:
@@ -42,6 +45,8 @@ def _reading_json(reading: Reading, raw: bytes, errors) -> dict:
 
 def _edited(base: Reading, body: dict, raw: bytes) -> Reading:
     """Apply the user's corrections to a proposed reading."""
+    if base.source == "document" and body.get("kind", base.kind) != base.kind:
+        raise ValueError("a document's kind comes from what was transcribed; drop the file again to re-read it")
     kind = body.get("kind", base.kind)
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {KINDS}")
@@ -63,7 +68,7 @@ def _edited(base: Reading, body: dict, raw: bytes) -> Reading:
         shares_outstanding=parse_number(str(outstanding)) if outstanding not in (None, "") else None,
         weight_is_percent=bool(body.get("weight_is_percent", base.weight_is_percent)),
         broker=clean(body.get("broker")) or base.broker,
-        source="user" if body.get("edited") else base.source)
+        source="user" if body.get("edited") and base.source != "document" else base.source)
 
 
 def check_lots(lake: Lake, raw: bytes, account: str | None, lots) -> None:
@@ -109,6 +114,8 @@ class AssistApi:
     async def evaluate(self, request: Request) -> JSONResponse:
         model = configured_model()
         results = await run_in_threadpool(run_eval, model)  # slow: keep the server responsive
+        if model is not None:
+            results = results + await run_in_threadpool(run_document_eval, model)
         result = summary(results)
         if model is not None:
             record_eval(model.name, result)
@@ -118,7 +125,19 @@ class AssistApi:
     async def read(self, request: Request) -> JSONResponse:
         from glassfolio.server.api import _upload
         _, raw = await _upload(request)
-        reading, errors = await run_in_threadpool(read_file, self.lake, raw, configured_model())
+        model = configured_model()
+        if detect(raw) in ("pdf", "image"):
+            doc = await run_in_threadpool(read_document, raw, model)
+            if doc.reading is None:
+                return JSONResponse({"error": "; ".join(doc.errors), "errors": list(doc.errors),
+                                     "document": {"method": doc.method}}, status_code=422)
+            token = new_id("up")
+            self.uploads = keep_recent({**self.uploads, token: Upload(doc.table, doc.reading, raw)})
+            return JSONResponse({"token": token, **_reading_json(doc.reading, doc.table, ()),
+                                 "document": {"method": doc.method, "warnings": list(doc.warnings),
+                                              "model": model.name if model else None,
+                                              "sources": [{"symbol": s, "line": l} for s, l in doc.sources]}})
+        reading, errors = await run_in_threadpool(read_file, self.lake, raw, model)
         token = new_id("up")
         self.uploads = keep_recent({**self.uploads, token: Upload(raw, reading)})
         return JSONResponse({"token": token, **_reading_json(reading, raw, errors)})
@@ -135,11 +154,12 @@ class AssistApi:
         if errors:
             return JSONResponse({"error": "; ".join(errors), "errors": list(errors),
                                  "reading": to_json(reading)}, status_code=422)
+        # A layout is remembered for broker CSVs only; a document's table is our own.
         remember = (reading, upload.raw, body.get("broker") or reading.broker) \
-            if reading.source != "saved" else None
+            if reading.source not in ("saved", "document") and upload.document is None else None
         if reading.kind == "positions":
             p = broker_import.preview_statement(self.lake, upload.raw, body["account"], reading.profile_id,
-                                                reading.as_of, mapping=reading.mapping())
+                                                reading.as_of, mapping=reading.mapping(), document=upload.document)
             payload = self.api.statement_payload(p, reading.skip_symbols)
             return self.api._hold("statement", p, payload, remember)
         if reading.kind == "lots":
@@ -153,5 +173,6 @@ class AssistApi:
         if not reading.fund_ticker:
             raise ValueError("enter the fund's ticker")
         p = etf_import.preview_etf_holdings(self.lake, upload.raw, reading.fund_ticker, "mapped",
-                                            reading.as_of, reading.shares_outstanding, reading.mapping())
+                                            reading.as_of, reading.shares_outstanding, reading.mapping(),
+                                            document=upload.document)
         return self.api._hold("etf", p, self.api.etf_payload(p), remember)

@@ -331,6 +331,9 @@ def cmd_eval_model(args) -> None:
     if model is None and not args.heuristic:
         sys.exit("no model configured; use --model NAME, --heuristic, or `glassfolio config model`")
     results = run_eval(model)
+    if model is not None:
+        from glassfolio.model_eval import run_document_eval
+        results = results + run_document_eval(model)  # PDFs and images need a model
     for r in results:
         print(f"  {ICONS['pass' if r.passed else 'fail']} {r.file:<32} {r.seconds:>6}s  {'; '.join(r.problems[:2])}")
     s = summary(results)
@@ -365,9 +368,22 @@ def cmd_import_file(args) -> None:
     from glassfolio.settings import configured_model
     from glassfolio.understand import read_file, remember_reading
 
+    from glassfolio.document_reader import read_document
+    from glassfolio.extract import detect
+
     lake = _lake()
     raw = Path(args.file).read_bytes()
-    reading, errors = read_file(lake, raw, configured_model())
+    document = None
+    if detect(raw) in ("pdf", "image"):
+        doc = read_document(raw, configured_model())
+        if doc.reading is None:
+            sys.exit("Can't read this document: " + "; ".join(doc.errors))
+        print(f"Read with {doc.method} and the local model; every number was found in the document.")
+        for warning in doc.warnings:
+            print(f"  ! {warning}")
+        document, raw, reading, errors = raw, doc.table, doc.reading, ()
+    else:
+        reading, errors = read_file(lake, raw, configured_model())
     print(f"{reading.kind} ({reading.source}), header on line {reading.header_row}, as of {reading.as_of}")
     for field, column in reading.columns.items():
         if column:
@@ -381,14 +397,15 @@ def cmd_import_file(args) -> None:
     as_of = args.as_of or reading.as_of
     if as_of is None:
         sys.exit("no date found in the file; pass --as-of")
-    p = broker_import.preview_statement(lake, raw, args.account, reading.profile_id, as_of, mapping=reading.mapping())
+    p = broker_import.preview_statement(lake, raw, args.account, reading.profile_id, as_of,
+                                        mapping=reading.mapping(), document=document)
     for m in p.matches:
         print(f"  {m.status:<8} {printable(m.row.symbol):<12} {printable(m.master_name) or 'NEW SECURITY'}")
     print(f"  total at the file's prices: {_money(float(p.total_value)).strip()}")
     if p.duplicate:
         sys.exit("This file was already imported.")
     if _confirm(args, "Import?"):
-        if reading.source != "saved":
+        if reading.source not in ("saved", "document"):
             p = replace(p, profile_id=remember_reading(lake, reading, raw, args.broker))
         print(broker_import.commit_statement(lake, p))
 

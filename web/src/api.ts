@@ -87,8 +87,9 @@ export interface Reading {
   token: string; kind: FileKind; header_row: number; columns: Record<string, string | null>;
   as_of: string | null; cash_symbols: string[]; skip_symbols: string[]; broker: string | null;
   fund_ticker: string | null; shares_outstanding: number | null; weight_is_percent: boolean;
-  source: "saved" | "model" | "heuristic" | "user"; profile_id: string | null; header: string[];
+  source: "saved" | "model" | "heuristic" | "user" | "document"; profile_id: string | null; header: string[];
   fields: Record<FileKind, string[]>; errors: string[]; sample: string[][]; lines: string[];
+  document?: { method: string; warnings: string[]; model: string | null; sources: { symbol: string; line: string }[] };
 }
 export interface ModelInfo {
   url: string; name: string | null; available: string[]; reachable: boolean; require_touch_id: boolean;

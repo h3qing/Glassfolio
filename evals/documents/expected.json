@@ -1,0 +1,6 @@
+{
+  "statement.pdf": {"kind": "positions", "as_of": "2026-09-30", "rows": {"NVDA": 12, "QQQ": 100, "GFOF": 50}, "cash": 3780},
+  "statement.png": {"kind": "positions", "as_of": "2026-09-30", "rows": {"NVDA": 12, "QQQ": 100, "GFOF": 50}, "cash": 3780},
+  "statement_scanned.pdf": {"kind": "positions", "as_of": "2026-09-30", "rows": {"NVDA": 12, "QQQ": 100, "GFOF": 50}, "cash": 3780},
+  "factsheet.pdf": {"kind": "fund_holdings", "as_of": "2026-06-30", "fund_ticker": "GCIT", "weights": {"NVDA": 20, "AAPL": 40, "MSFT": 39, "USD": 1}}
+}
