@@ -10,5 +10,9 @@ fn main() {
         .map(|bytes| format!("{:x}", Sha256::digest(bytes)))
         .unwrap_or_default();
     println!("cargo:rustc-env=GLASSFOLIO_SIDECAR_SHA256={digest}");
-    tauri_build::build()
+    // App commands: callable only where a capability allows them (the local pages).
+    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
+        tauri_build::AppManifest::new().commands(&["finish_onboarding", "print_page"]),
+    ))
+    .expect("tauri build");
 }

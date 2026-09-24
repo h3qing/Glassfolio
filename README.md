@@ -57,8 +57,9 @@ open dist/Glassfolio.dmg   # drag Glassfolio to Applications
   off under Settings), then reads the encryption key from the Keychain. Touch ID is
   a convenience lock against someone using your unlocked Mac. It doesn't protect
   against software already running as you. On first
-  launch it creates the key and shows the recovery key once. Write it down and keep
-  it offline.
+  launch it creates the key and walks you through saving the recovery key: print
+  it or save it in a password manager, then type two groups back to confirm.
+  **Glassfolio → Show Recovery Key…** shows it again later, after Touch ID.
 - **Existing CLI data:** if you set up with `glassfolio init`, the app uses the same
   key and data. macOS asks once whether Glassfolio may use the Keychain item.
 - **Lost Keychain item:** run `glassfolio key restore`, or from the app:

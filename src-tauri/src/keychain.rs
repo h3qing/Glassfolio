@@ -44,6 +44,11 @@ fn add_only(key: &str) -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 pub fn load_or_create() -> Result<Key, String> {
+    load_or_create_inner(true)
+}
+
+#[cfg(target_os = "macos")]
+fn load_or_create_inner(create: bool) -> Result<Key, String> {
     use security_framework::passwords::get_generic_password;
 
     // Development builds may run on synthetic data with a throwaway key (like the CLI's tests).
@@ -64,6 +69,9 @@ pub fn load_or_create() -> Result<Key, String> {
         }
         Err(err) if err.code() == -25300 => {
             // errSecItemNotFound. If encrypted data exists, a new key would lock it away for good.
+            if !create {
+                return Err("there's no Glassfolio key in the Keychain".into());
+            }
             if data_exists() {
                 return Err(RESTORE_HINT.into());
             }
@@ -74,6 +82,13 @@ pub fn load_or_create() -> Result<Key, String> {
             Ok(Key::Created(key))
         }
         Err(err) => Err(format!("Keychain: {err}")),
+    }
+}
+
+/// The existing key only (for "Show Recovery Key…"); never creates one.
+pub fn load_existing() -> Result<String, String> {
+    match load_or_create_inner(false)? {
+        Key::Existing(key) | Key::Created(key) => Ok(key),
     }
 }
 

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Recovery Key</title>
+  <link rel="stylesheet" href="splash.css" />
+</head>
+<body data-tauri-drag-region>
+  <main id="recovery" data-tauri-drag-region>
+    <section class="card">
+      <h1>Your recovery key</h1>
+      <p>It unlocks your data if the Keychain is ever lost. Keep a copy offline.</p>
+      <div class="key" data-key aria-label="Recovery key"></div>
+      <div class="actions left">
+        <button data-print>Print recovery sheet</button>
+        <button data-copy>Copy</button>
+        <span class="note" data-copied hidden>Copied.</span>
+      </div>
+    </section>
+  </main>
+  <section class="sheet" aria-hidden="true">
+    <h1>Glassfolio recovery key</h1>
+    <p class="date" data-date></p>
+    <div class="key" data-key></div>
+    <p>This key unlocks your Glassfolio data if your Mac's Keychain is lost. Keep this sheet private and offline.</p>
+    <p>To restore: install Glassfolio, then run <code>glassfolio key restore</code> (or
+      <code>/Applications/Glassfolio.app/Contents/MacOS/glassfolio-server key restore</code>) and type the key.</p>
+  </section>
+  <script src="splash.js"></script>
+</body>
+</html>

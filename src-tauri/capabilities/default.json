@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The app's own splash page may drag the window. The service page gets the same, for its exact origin, at runtime.",
-  "windows": ["main"],
-  "permissions": ["core:window:allow-start-dragging"]
+  "description": "The app's own local pages (splash, onboarding, recovery key): drag the window, finish onboarding, print the recovery sheet. The service page gets only dragging, for its exact origin, at runtime.",
+  "windows": ["main", "recovery"],
+  "permissions": ["core:window:allow-start-dragging", "allow-finish-onboarding", "allow-print-page"]
 }

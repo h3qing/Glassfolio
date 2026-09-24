@@ -3,10 +3,13 @@
 
 mod auth;
 mod keychain;
+mod onboarding;
 mod sidecar;
 
 use std::sync::{Arc, Mutex};
 
+use tauri::menu::{Menu, MenuItem, MenuItemKind};
+use tauri::webview::PageLoadEvent;
 use tauri::{Manager, RunEvent, TitleBarStyle, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_liquid_glass::{GlassMaterialVariant, LiquidGlassConfig, LiquidGlassExt};
@@ -45,6 +48,7 @@ fn fail(app: &tauri::AppHandle, window: &WebviewWindow, message: &str) {
 
 /// Unlock, open the Keychain, start the service, then show the app.
 fn start(app: tauri::AppHandle, window: WebviewWindow, allowed: Allowed) {
+    app.state::<onboarding::PageReady>().wait();
     if settings_require_touch_id() {
         status(&window, "Waiting for Touch ID…", false);
         match auth::unlock("unlock your portfolio") {
@@ -54,17 +58,15 @@ fn start(app: tauri::AppHandle, window: WebviewWindow, allowed: Allowed) {
         }
     }
     let key = match keychain::load_or_create() {
-        Ok(keychain::Key::Existing(key)) => key,
+        Ok(keychain::Key::Existing(key)) => {
+            // Development only: walk through first-run onboarding without touching the Keychain.
+            if cfg!(debug_assertions) && std::env::var("GLASSFOLIO_ONBOARDING_PREVIEW").is_ok() {
+                onboarding::run(&app, &window, &key);
+            }
+            key
+        }
         Ok(keychain::Key::Created(key)) => {
-            app.dialog()
-                .message(format!(
-                    "Glassfolio created an encryption key for your data and stored it in your Keychain.\n\n\
-                     Write down this recovery key and keep it offline. Without it, your data can't be \
-                     recovered if the Keychain is lost:\n\n{}\n{}",
-                    &key[..32], &key[32..]))
-                .title("Save your recovery key")
-                .kind(MessageDialogKind::Warning)
-                .blocking_show();
+            onboarding::run(&app, &window, &key);
             key
         }
         Err(e) => return fail(&app, &window, &format!("Couldn't open the Keychain: {e}")),
@@ -126,7 +128,7 @@ fn may_navigate(url: &tauri::Url, service_origin: Option<&str>) -> bool {
     own || service
 }
 
-fn apply_glass(app: &tauri::AppHandle, window: &WebviewWindow) {
+pub(crate) fn apply_glass(app: &tauri::AppHandle, window: &WebviewWindow) {
     let glass = app.liquid_glass();
     if !glass.is_supported() {
         eprintln!("Liquid Glass isn't available on this macOS; using the standard window material");
@@ -137,15 +139,60 @@ fn apply_glass(app: &tauri::AppHandle, window: &WebviewWindow) {
     }
 }
 
+/// App menu → Show Recovery Key…: always asks for Touch ID or the password first.
+fn show_recovery_key(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        match auth::unlock("show your recovery key") {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(e) => {
+                app.dialog().message(e).kind(MessageDialogKind::Error).blocking_show();
+                return;
+            }
+        }
+        match keychain::load_existing() {
+            Ok(key) => {
+                let handle = app.clone();
+                let _ = app.run_on_main_thread(move || {
+                    if let Err(e) = onboarding::show(handle, key) {
+                        eprintln!("couldn't open the recovery key window: {e}");
+                    }
+                });
+            }
+            Err(e) => {
+                app.dialog().message(e).kind(MessageDialogKind::Error).blocking_show();
+            }
+        }
+    });
+}
+
+fn app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let menu = Menu::default(app)?;
+    if let Some(MenuItemKind::Submenu(app_menu)) = menu.items()?.first() {
+        let item = MenuItem::with_id(app, "show-recovery-key", "Show Recovery Key…", true, None::<&str>)?;
+        app_menu.insert(&item, 2)?;
+    }
+    Ok(menu)
+}
+
 pub fn run() {
     let allowed: Allowed = Arc::new(Mutex::new(None));
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_liquid_glass::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Service::default())
+        .manage(onboarding::PageReady::default())
+        .manage(onboarding::Onboarding::default())
+        .invoke_handler(tauri::generate_handler![onboarding::finish_onboarding, onboarding::print_page])
+        .on_menu_event(|app, event| {
+            if event.id() == "show-recovery-key" {
+                show_recovery_key(app.clone());
+            }
+        })
         .setup({
             let allowed = allowed.clone();
             move |app| {
+                app.set_menu(app_menu(app.handle())?)?;
                 let gate = allowed.clone();
                 let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                     .title("Glassfolio")
@@ -156,6 +203,11 @@ pub fn run() {
                     .hidden_title(true)
                     .traffic_light_position(tauri::LogicalPosition::new(24.0, 28.0))
                     .on_navigation(move |url| may_navigate(url, gate.lock().unwrap().as_deref()))
+                    .on_page_load(|window, payload| {
+                        if payload.event() == PageLoadEvent::Finished && payload.url().scheme() == "tauri" {
+                            window.app_handle().state::<onboarding::PageReady>().mark();
+                        }
+                    })
                     .build()?;
                 apply_glass(app.handle(), &window);
                 let handle = app.handle().clone();

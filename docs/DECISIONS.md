@@ -294,8 +294,21 @@ read by a local model, with fixed code checking whatever it proposes.
   service exits when it closes. Verified by force-killing the app (SIGKILL): the
   service followed.
 - **Keychain:** the app uses the same item as the CLI (service `glassfolio`,
-  account `db-key`). Created on first launch with 32 random bytes; the recovery
-  key is shown once in a native dialog.
+  account `db-key`). It's created on first launch from 32 random bytes.
+- **Recovery-key onboarding** (owner feedback: a single dialog was too easy to click
+  past). It's a three-step first run in the app's own local page:
+  1. Why the key matters.
+  2. The key in 8 groups of 8, with **Print recovery sheet** (a print-only layout)
+     and **Copy**.
+  3. Type back two randomly chosen groups before the app opens. Paste is allowed,
+     since a password manager is a valid place to keep the key; blocking paste
+     annoyed the owner.
+
+  **Glassfolio → Show Recovery Key…** re-shows it later, behind Touch ID or the
+  password (always, whatever the setting). The key only ever appears in the app's
+  local pages, never in the web UI served by the analysis service. Debug builds can
+  preview the flow with `GLASSFOLIO_ONBOARDING_PREVIEW=1` without touching the
+  Keychain.
 - **Touch ID:** LocalAuthentication, device-owner policy (Touch ID or the Mac's
   password), before the key is read. This is an app-enforced unlock, not hardware
   binding: binding the Keychain item to biometrics needs a Developer ID–signed app

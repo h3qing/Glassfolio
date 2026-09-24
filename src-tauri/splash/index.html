@@ -6,11 +6,55 @@
   <link rel="stylesheet" href="splash.css" />
 </head>
 <body data-tauri-drag-region>
-  <main data-tauri-drag-region>
+  <main id="splash" data-tauri-drag-region>
     <img src="icon.png" alt="" width="96" height="96" />
     <h1>Glassfolio</h1>
     <p id="status">Unlocking…</p>
   </main>
+
+  <main id="onboarding" hidden>
+    <ol class="steps" aria-label="Setup steps"><li class="on">Why</li><li>Save</li><li>Check</li></ol>
+
+    <section class="card" data-step="1">
+      <h1>Your portfolio is encrypted on this Mac</h1>
+      <p>Glassfolio just made a key that locks your data. It's kept in your Mac's Keychain and never leaves this computer.</p>
+      <p>If the Keychain is ever lost (a new Mac, a reset, a failed disk), a copy of this key, your <strong>recovery key</strong>, is the only way back in. Nobody can recover it for you, including the people who make Glassfolio.</p>
+      <div class="actions"><button class="primary" data-next>Show my recovery key</button></div>
+    </section>
+
+    <section class="card" data-step="2" hidden>
+      <h1>Save your recovery key</h1>
+      <p>Write it down or print it, and keep it somewhere safe and offline. A password manager works too.</p>
+      <div class="key" data-key aria-label="Recovery key"></div>
+      <div class="actions left">
+        <button data-print>Print recovery sheet</button>
+        <button data-copy>Copy</button>
+        <span class="note" data-copied hidden>Copied. Paste it into your password manager, then copy something else.</span>
+      </div>
+      <label class="check"><input type="checkbox" data-saved /> I've saved my recovery key somewhere safe</label>
+      <div class="actions"><button class="primary" data-next data-needs-saved disabled>Continue</button></div>
+    </section>
+
+    <section class="card" data-step="3" hidden>
+      <h1>Check your copy</h1>
+      <p>From the copy you saved, type <strong>groups <span data-g1></span> and <span data-g2></span></strong>.</p>
+      <div class="verify">
+        <label><span>Group <span data-g1></span></span><input data-v1 autocomplete="off" spellcheck="false" maxlength="17" /></label>
+        <label><span>Group <span data-g2></span></span><input data-v2 autocomplete="off" spellcheck="false" maxlength="17" /></label>
+      </div>
+      <p class="error" data-error hidden>That doesn't match. Check your copy; you can go back to see the key again.</p>
+      <div class="actions"><button data-back>Back</button><button class="primary" data-finish>Open Glassfolio</button></div>
+    </section>
+  </main>
+
+  <section class="sheet" aria-hidden="true">
+    <h1>Glassfolio recovery key</h1>
+    <p class="date" data-date></p>
+    <div class="key" data-key></div>
+    <p>This key unlocks your Glassfolio data if your Mac's Keychain is lost. Keep this sheet private and offline.</p>
+    <p>To restore: install Glassfolio, then run <code>glassfolio key restore</code> (or
+      <code>/Applications/Glassfolio.app/Contents/MacOS/glassfolio-server key restore</code>) and type the key.</p>
+  </section>
   <script src="splash.js"></script>
 </body>
 </html>
