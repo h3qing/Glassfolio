@@ -30,7 +30,7 @@ loopback-only), `understand.py` (read any export: saved layout → model → heu
 always validated), `model_eval.py` + `evals/` (known-answer model tests), `tax*.py`,
 `assistant/` (tools, sql_sandbox, agent loop with grounding guards, evals, mcp_server),
 `demo.py` (loads the synthetic golden portfolio). Frontend: `web/` (Vite + React + TS;
-glass on frames, near-solid sheets under numbers, tabular numerals).
+glass on frames, near-solid sheets under numbers, tabular numerals; see `docs/DESIGN.md`).
 
 - Model tests: `uv run glassfolio eval-model [--model NAME | --heuristic]` and
   `uv run glassfolio eval-assistant [--model NAME]` (synthetic data only)
