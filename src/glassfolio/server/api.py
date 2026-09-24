@@ -1,6 +1,7 @@
 """JSON API handlers. Reads are free; writes go preview → commit."""
 
 import json
+import unicodedata
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -18,6 +19,7 @@ from glassfolio.tax import company_after_tax, portfolio_after_tax
 from glassfolio.tax_profiles import import_lots
 from glassfolio.understand import remember_reading
 from glassfolio.lake import Lake, list_ops, new_id
+from glassfolio.parsing import printable
 from glassfolio.server.serialize import to_json
 
 MAX_UPLOAD = 20 * 1024 * 1024
@@ -233,6 +235,11 @@ def _opt_float(value) -> float | None:
 
 
 async def _upload(request: Request) -> tuple[dict, bytes]:
+    fields, raw, _ = await _upload_named(request)
+    return fields, raw
+
+
+async def _upload_named(request: Request) -> tuple[dict, bytes, str]:
     """Read one uploaded file into memory; it is never spooled to a plaintext temp file."""
     if int(request.headers.get("content-length") or MAX_UPLOAD + 1) > MAX_UPLOAD:
         raise ValueError("file is larger than 20 MB")
@@ -241,4 +248,7 @@ async def _upload(request: Request) -> tuple[dict, bytes]:
         if upload is None or isinstance(upload, str):
             raise ValueError("no file uploaded")
         raw = await upload.read()
-        return {k: v for k, v in form.items() if isinstance(v, str)}, raw
+        # shown on screen: no control or invisible direction characters that could disguise it
+        name = "".join(c for c in printable(upload.filename or "") if unicodedata.category(c) != "Cf")
+        name = name[:120] or "your file"
+        return {k: v for k, v in form.items() if isinstance(v, str)}, raw, name

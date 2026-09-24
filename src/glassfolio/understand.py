@@ -437,7 +437,11 @@ def remember_reading(lake: Lake, reading: Reading, raw: bytes, broker: str | Non
 
 def read_file(lake: Lake, raw: bytes, model: ChatModel | None) -> tuple[Reading, tuple[str, ...]]:
     """Best reading of a file and the problems left in it (empty when it reads cleanly)."""
-    saved = read_saved(lake, raw)
+    return read_given(raw, read_saved(lake, raw), model)
+
+
+def read_given(raw: bytes, saved: Reading | None, model: ChatModel | None) -> tuple[Reading, tuple[str, ...]]:
+    """read_file after its lake lookup; needs no lake, so it can run in a worker thread."""
     if saved is not None and not validate(raw, saved):
         return saved, ()
     if model is not None:

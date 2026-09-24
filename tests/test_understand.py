@@ -96,8 +96,11 @@ def test_confirmed_mapping_is_recognized_next_time_without_a_model(lake):
 
 
 def test_eval_runner_scores_heuristics_and_a_model():
-    from glassfolio.model_eval import run_eval, summary
-    assert summary(run_eval(None))["passed"] == len(EXPECTED)
+    from glassfolio.model_eval import planned, run_eval, summary
+    seen = []
+    assert summary(run_eval(None, on_file=seen.append))["passed"] == len(EXPECTED)
+    assert seen == sorted(EXPECTED) and planned(None) == len(EXPECTED)
+    assert planned(object()) > len(EXPECTED)  # a model also reads the PDFs and images
 
     class Wrong:
         name = "wrong"
@@ -182,3 +185,17 @@ def test_touch_id_setting_round_trip_keeps_model_choice(tmp_path, monkeypatch):
     set_touch_id(False)
     s = load_settings()
     assert s.require_touch_id is False and s.name == "m"
+
+
+def test_settings_writes_never_lose_each_other(tmp_path, monkeypatch):
+    import threading
+
+    from glassfolio.settings import load_settings, record_eval, set_touch_id
+    monkeypatch.setenv("GLASSFOLIO_HOME", str(tmp_path))
+    set_touch_id(False)
+    threads = [threading.Thread(target=record_eval, args=(f"m{i}", {"passed": i})) for i in range(20)]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    s = load_settings()
+    assert len(s.evals) == 20 and s.require_touch_id is False  # no write undid another
+    assert [p.name for p in tmp_path.iterdir()] == ["settings.json"]  # replaced whole, no leftovers

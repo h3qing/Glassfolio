@@ -76,7 +76,8 @@ def create_app(lake: Lake, token: str, allowed_hosts, static_dir: Path = STATIC,
     get = [("/api/meta", api.meta), ("/api/exposure", api.exposure),
            ("/api/company/{ticker}", api.company), ("/api/checks", api.checks),
            ("/api/ops", api.ops), ("/api/changes", api.changes), ("/api/history", api.history),
-           ("/api/inbox", api.inbox), ("/api/taxes", tax.overview), ("/api/assist/models", assist.models)]
+           ("/api/inbox", api.inbox), ("/api/taxes", tax.overview), ("/api/assist/models", assist.models),
+           ("/api/jobs", assist.jobs_list), ("/api/jobs/{job_id}", assist.job)]
     post = [("/api/checks", api.run_checks), ("/api/owners", api.add_owner),
             ("/api/accounts", api.add_account), ("/api/profiles", api.add_profile),
             ("/api/import/statement", api.preview_statement), ("/api/import/etf", api.preview_etf),
@@ -87,7 +88,7 @@ def create_app(lake: Lake, token: str, allowed_hosts, static_dir: Path = STATIC,
             ("/api/assist/model", assist.choose), ("/api/assist/eval", assist.evaluate),
             ("/api/assist/read", assist.read), ("/api/assist/preview", assist.preview),
             ("/api/chat", chat.chat), ("/api/chat/confirm", chat.confirm),
-            ("/api/settings/touch-id", assist.touch_id)]
+            ("/api/settings/touch-id", assist.touch_id), ("/api/jobs/forget", assist.forget_job)]
     routes = [Route(p, _guarded(h), methods=["GET"]) for p, h in get]
     routes += [Route(p, _guarded(h), methods=["POST"]) for p, h in post]
     if (static_dir / "index.html").exists():

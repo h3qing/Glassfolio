@@ -4,7 +4,10 @@ Holds no financial data and no keys, so it is a plain JSON file.
 """
 
 import json
+import os
+import threading
 from dataclasses import asdict, dataclass, field, replace
+from typing import Callable
 
 from glassfolio.config import data_home
 from glassfolio.llm import DEFAULT_URL, OpenAICompatModel, require_loopback
@@ -31,24 +34,37 @@ def load_settings() -> ModelSettings:
                          raw.get("require_touch_id", True) is not False)
 
 
+_WRITING = threading.RLock()  # a model test finishes in a worker thread while you change settings
+
+
 def save_settings(settings: ModelSettings) -> ModelSettings:
+    """Replaces the file whole, so a crash mid-write can't leave half a file."""
     require_loopback(settings.url)
-    _path().parent.mkdir(parents=True, exist_ok=True)
-    _path().write_text(json.dumps(asdict(settings), indent=2))
+    path = _path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + ".tmp")
+    with _WRITING:
+        temp.write_text(json.dumps(asdict(settings), indent=2))
+        os.replace(temp, path)
     return settings
 
 
+def _change(change: Callable[[ModelSettings], ModelSettings]) -> ModelSettings:
+    """Load, change and save as one step, so two writers never undo each other."""
+    with _WRITING:
+        return save_settings(change(load_settings()))
+
+
 def choose_model(url: str, name: str | None) -> ModelSettings:
-    return save_settings(replace(load_settings(), url=url.rstrip("/"), name=name or None))
+    return _change(lambda s: replace(s, url=url.rstrip("/"), name=name or None))
 
 
 def record_eval(name: str, summary: dict) -> ModelSettings:
-    current = load_settings()
-    return save_settings(replace(current, evals={**current.evals, name: summary}))
+    return _change(lambda s: replace(s, evals={**s.evals, name: summary}))
 
 
 def set_touch_id(required: bool) -> ModelSettings:
-    return save_settings(replace(load_settings(), require_touch_id=bool(required)))
+    return _change(lambda s: replace(s, require_touch_id=bool(required)))
 
 
 def configured_model() -> OpenAICompatModel | None:

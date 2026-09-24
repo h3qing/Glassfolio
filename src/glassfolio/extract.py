@@ -12,6 +12,7 @@ import io
 import sys
 from dataclasses import dataclass
 from statistics import median
+from typing import Callable
 
 MAX_PAGES = 20
 MAX_CHARS = 40_000
@@ -136,13 +137,22 @@ def _render_page(pdf_bytes: bytes, index: int) -> bytes:
         document.close()
 
 
-def _pdf(raw: bytes) -> Extracted:
+Progress = Callable[..., None]  # progress(stage, step=0, steps=0)
+
+
+def quiet(stage: str, step: int = 0, steps: int = 0) -> None:
+    """The default progress listener: nobody is watching."""
+
+
+def _pdf(raw: bytes, progress: Progress = quiet) -> Extracted:
     import pdfplumber
 
     texts, methods = [], set()
     with pdfplumber.open(io.BytesIO(raw)) as pdf:
         pages = len(pdf.pages)
+        read = min(pages, MAX_PAGES)
         for i, page in enumerate(pdf.pages[:MAX_PAGES]):
+            progress(f"Reading page {i + 1} of {read}", i + 1, read)
             text = page.extract_text(layout=True) or ""
             if len(text.strip()) >= MIN_PAGE_TEXT:
                 methods.add("pdf-text")
@@ -156,13 +166,15 @@ def _pdf(raw: bytes) -> Extracted:
     return Extracted(text[:MAX_CHARS], method, pages, pages > MAX_PAGES or len(text) > MAX_CHARS)
 
 
-def extract(raw: bytes) -> Extracted:
+def extract(raw: bytes, progress: Progress = quiet) -> Extracted:
+    """progress(stage, step, steps) hears which page is being read."""
     kind = detect(raw)
     if kind not in ("pdf", "image"):
         raise ValueError("expected a PDF, image or CSV file")
     try:
         if kind == "pdf":
-            return _pdf(raw)
+            return _pdf(raw, progress)
+        progress("Recognizing the text in the image")
         text = ocr(raw)
         return Extracted(text[:MAX_CHARS], "ocr", 1, len(text) > MAX_CHARS)
     except ValueError:

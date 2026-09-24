@@ -224,6 +224,8 @@ Rules:
 | **Drop zone** | 1.5px dashed `--sheet-line` on `--sheet-2`, radius `sheet − 6`. Dragging over it turns it accent (border, `--select` fill, darker text). The large variant has a centred accent icon and a 17px line. |
 | **Status** | Icon, label and color together: `✓ Reconciled`, `! Check notes`, `✗ Doesn't match`. Never color alone. |
 | **Approximation mark** | A faint `≈` after a value that relies on an estimate, with a tooltip saying which one. The legend explains it. |
+| **Progress** | For slow work (reading a PDF, testing a model). In place of the thing being worked on: the title (17px/600, one line, ellipsis), the current stage with elapsed time (`--ink-2`, tabular), a 6px capsule bar in `--accent` on `--sheet-line`, and a faint line saying you can leave. The bar is measured when a count is known ("page 2 of 5", "file 3 of 10") and sweeps otherwise. Never a fake percentage. |
+| **Job mark** | Beside the sidebar item that owns the work: a 16px ring while it runs (it fills when steps are known, spins otherwise), then an 8px accent dot if it finished while you were elsewhere (`--fail` if it failed). The dot clears when you open that page. |
 | **Privacy mode** | A toolbar eye toggle blurs every amount (`filter: blur(7px)`, not selectable). Percentages and bars stay visible, so the page is still useful to screen-share. |
 | **Chat bubbles** | User: accent fill, radius `18 18 6 18`. Assistant: `--sheet` with a hairline shadow, radius `18 18 18 6`. Proposed changes appear in a bordered `--sheet` card with a confirm button. |
 | **Icons** | SF Symbols in spirit: 20px grid, 1.6px stroke, round caps and joins, `currentColor`, 18px by default. Always next to a text label or given an `aria-label`. |
@@ -263,7 +265,11 @@ no animation on load.
 | Privacy blur | `filter .25s ease` |
 | Drop zone | `.2s ease` on border and background |
 
-With Reduce Motion on, every transition is off.
+| Progress sweep / ring spin | 1.6s ease-in-out sweep, 0.9s linear spin: the only looping motion, and only while work you started is running |
+
+With Reduce Motion on, every transition is off, the sweep becomes a still, faint
+full bar, and the ring stops spinning. The elapsed time still shows that work is
+under way.
 
 ## 8. Accessibility and system settings
 

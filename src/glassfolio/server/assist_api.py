@@ -6,25 +6,26 @@ Flow: /api/assist/read (upload) â†’ a proposed reading the UI lets you correct â
 """
 
 from dataclasses import dataclass, replace
+from itertools import count
 from datetime import date
 from decimal import Decimal
 
-from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from glassfolio import broker_import, etf_import
 from glassfolio.lake import Lake, new_id
 from glassfolio.llm import list_models
-from glassfolio.model_eval import run_document_eval, run_eval, summary
+from glassfolio.model_eval import planned, run_document_eval, run_eval, summary
 from glassfolio.parsing import clean, parse_number, read_rows
 from glassfolio.server.serialize import to_json
 from glassfolio.settings import choose_model, configured_model, load_settings, record_eval, set_touch_id
 from glassfolio.tax_profiles import parse_lots
 from glassfolio.document_reader import read_document
 from glassfolio.extract import detect
-from glassfolio.understand import FIELDS, KINDS, Reading, read_file, validate
+from glassfolio.understand import FIELDS, KINDS, Reading, read_given, read_saved, validate
 from glassfolio.server.api import keep_recent
+from glassfolio.server.jobs import Jobs
 
 SAMPLE_ROWS = 6
 
@@ -92,6 +93,7 @@ class AssistApi:
         self.lake = lake
         self.api = api  # the main Api: shares the pending-preview store and commit
         self.uploads: dict[str, Upload] = {}
+        self.jobs = Jobs()
 
     async def models(self, request: Request) -> JSONResponse:
         s = load_settings()
@@ -113,34 +115,71 @@ class AssistApi:
 
     async def evaluate(self, request: Request) -> JSONResponse:
         model = configured_model()
-        results = await run_in_threadpool(run_eval, model)  # slow: keep the server responsive
+        job = self.jobs.start("evaluate", model.name if model else "built-in rules",
+                              lambda progress: self._evaluate(model, progress))
+        return JSONResponse({"job": job.summary()})
+
+    @staticmethod
+    def _evaluate(model, progress) -> tuple[str, dict]:
+        total, step = planned(model), count(1)
+
+        def on_file(name: str) -> None:
+            progress(name.rsplit(".", 1)[0].replace("_", " "), next(step), total)
+
+        results = run_eval(model, on_file=on_file)
         if model is not None:
-            results = results + await run_in_threadpool(run_document_eval, model)
+            results = results + run_document_eval(model, on_file=on_file)
         result = summary(results)
         if model is not None:
-            record_eval(model.name, result)
-        return JSONResponse(to_json({"model": model.name if model else None, **result,
-                                     "results": results}))
+            try:
+                record_eval(model.name, result)
+            except OSError:
+                pass  # the score just isn't remembered; the results still show
+        return "done", to_json({"model": model.name if model else None, **result, "results": results})
 
     async def read(self, request: Request) -> JSONResponse:
-        from glassfolio.server.api import _upload
-        _, raw = await _upload(request)
+        """Starts reading; the page follows the job (it can take a minute with a model)."""
+        from glassfolio.server.api import _upload_named
+        _, raw, name = await _upload_named(request)
         model = configured_model()
-        if detect(raw) in ("pdf", "image"):
-            doc = await run_in_threadpool(read_document, raw, model)
+        document = detect(raw) in ("pdf", "image")
+        saved = None if document else read_saved(self.lake, raw)  # the lake stays on this thread
+        job = self.jobs.start("read", name, lambda progress: self._read(raw, document, saved, model, progress))
+        return JSONResponse({"job": job.summary()})
+
+    def _read(self, raw: bytes, document: bool, saved, model, progress) -> tuple[str, dict]:
+        if document:
+            doc = read_document(raw, model, progress=progress)
             if doc.reading is None:
-                return JSONResponse({"error": "; ".join(doc.errors), "errors": list(doc.errors),
-                                     "document": {"method": doc.method}}, status_code=422)
+                return "failed", {"error": "; ".join(doc.errors), "errors": list(doc.errors),
+                                  "document": {"method": doc.method}}
             token = new_id("up")
             self.uploads = keep_recent({**self.uploads, token: Upload(doc.table, doc.reading, raw)})
-            return JSONResponse({"token": token, **_reading_json(doc.reading, doc.table, ()),
-                                 "document": {"method": doc.method, "warnings": list(doc.warnings),
-                                              "model": model.name if model else None,
-                                              "sources": [{"symbol": s, "line": l} for s, l in doc.sources]}})
-        reading, errors = await run_in_threadpool(read_file, self.lake, raw, model)
+            return "done", {"token": token, **_reading_json(doc.reading, doc.table, ()),
+                            "document": {"method": doc.method, "warnings": list(doc.warnings),
+                                         "model": model.name if model else None,
+                                         "sources": [{"symbol": s, "line": l} for s, l in doc.sources]}}
+        progress(f"Reading with {model.name}" if model else "Reading")
+        reading, errors = read_given(raw, saved, model)
         token = new_id("up")
         self.uploads = keep_recent({**self.uploads, token: Upload(raw, reading)})
-        return JSONResponse({"token": token, **_reading_json(reading, raw, errors)})
+        return "done", {"token": token, **_reading_json(reading, raw, errors)}
+
+    async def jobs_list(self, request: Request) -> JSONResponse:
+        return JSONResponse([j.summary() for j in self.jobs.all()])
+
+    async def job(self, request: Request) -> JSONResponse:
+        job = self.jobs.get(request.path_params["job_id"])
+        return JSONResponse({**job.summary(), "result": job.result})
+
+    async def forget_job(self, request: Request) -> JSONResponse:
+        """Forgetting a reading also drops its uploaded file from memory."""
+        body = await request.json()
+        job = self.jobs.forget(str(body.get("id", "")) if isinstance(body, dict) else "")
+        token = (job.result or {}).get("token") if job is not None and job.kind == "read" else None
+        if token:
+            self.uploads = {k: u for k, u in self.uploads.items() if k != token}
+        return JSONResponse({})
 
     async def preview(self, request: Request) -> JSONResponse:
         body = await request.json()

@@ -1,19 +1,31 @@
-import { useEffect, useState } from "react";
-import { api, type EvalRun, type ModelInfo } from "../api";
+import { useEffect, useRef, useState } from "react";
+import { api, type EvalRun, type Job, type ModelInfo } from "../api";
+import { JobProgress } from "../jobs";
 
-export default function SettingsView() {
+export default function SettingsView({ job, onJob }: { job?: Job; onJob: (job: Job) => void }) {
   const [info, setInfo] = useState<ModelInfo | null>(null);
   const [url, setUrl] = useState("");
   const [run, setRun] = useState<EvalRun | null>(null);
-  const [busy, setBusy] = useState(false);
+  const shown = useRef<string | null>(null);  // the test whose result is on screen
   const [error, setError] = useState<string | null>(null);
   const load = () => api.models().then((m) => { setInfo(m); setUrl(m.url); }).catch((e) => setError(e.message));
   useEffect(() => { load(); }, []);
+  useEffect(() => {  // a finished test shows up here, even if you left while it ran
+    if (!job || job.status === "running" || job.id === shown.current) return;
+    shown.current = job.id;
+    api.job<EvalRun>(job.id).then((j) => {
+      if ("error" in j.result) setError(j.result.error);
+      else setRun(j.result);
+      load();
+    }).catch((e) => setError(e.message));
+  }, [job]);
+  const testing = job?.status === "running";
   if (!info) return <section className="sheet"><p className="muted">Loading…</p></section>;
 
   const choose = (name: string | null) =>
     api.chooseModel(url, name).then(() => { setRun(null); setError(null); load(); }).catch((e) => setError(e.message));
   const score = info.name ? info.evals[info.name] : undefined;
+  const result = run?.model === info.name ? run : null;  // a test of another model isn't this one's
   return (
     <>
       <section className="sheet">
@@ -37,13 +49,16 @@ export default function SettingsView() {
               {info.name && !info.available.includes(info.name) && <option value={info.name}>{info.name} (not found)</option>}
             </select>
           </label>
-          <button className="btn primary" disabled={!info.name || busy} onClick={() => {
-            setBusy(true); setError(null);
-            api.evaluate().then((r) => { setRun(r); load(); }).catch((e) => setError(e.message)).finally(() => setBusy(false));
-          }}>{busy ? "Testing… (a few minutes)" : "Test this model"}</button>
+          <button className="btn primary" disabled={!info.name || testing} onClick={() => {
+            setError(null); setRun(null);
+            api.evaluate().then((r) => onJob(r.job)).catch((e) => setError(e.message));
+          }}>{testing ? "Testing…" : "Test this model"}</button>
         </div>
+        {testing && <JobProgress job={job} align="left" title={`Testing ${job.label}`}
+          stage={job.steps ? `File ${job.step} of ${job.steps}: ${job.stage}` : job.stage}
+          note="You can leave this page; the test keeps running. A strong model takes a few minutes." />}
         {!info.reachable && <p className="status warn" style={{ margin: "12px 6px 0" }}>! No local model server answered at this address. Start Ollama or LM Studio, or leave the model on None.</p>}
-        {score && !run && <p className="muted" style={{ margin: "12px 6px 0" }}>Last test: {score.passed} of {score.total} sample files read correctly in {score.seconds}s.</p>}
+        {score && !result && <p className="muted" style={{ margin: "12px 6px 0" }}>Last test: {score.passed} of {score.total} sample files read correctly in {score.seconds}s.</p>}
         <p className="faint" style={{ margin: "12px 6px 0", fontSize: 13 }}>Models with 8B parameters or more work best. Very small models (3B) usually fail the test; Glassfolio then falls back to its built-in rules, which you can correct by hand.</p>
         {error && <p className="error">{error}</p>}
       </section>
@@ -58,12 +73,12 @@ export default function SettingsView() {
           <p className="faint" style={{ margin: "10px 6px 0", fontSize: 13 }}>Your data stays encrypted either way; this adds a check before the app reads its key from the Keychain.</p>
         </section>
       )}
-      {run && (
+      {result && (
         <section className="sheet">
-          <h2 className="section-title">{run.passed === run.total ? "✓" : "!"} {run.model}: {run.passed} of {run.total} sample files read correctly</h2>
+          <h2 className="section-title">{result.passed === result.total ? "✓" : "!"} {result.model}: {result.passed} of {result.total} sample files read correctly</h2>
           <table>
             <tbody>
-              {run.results.map((r) => (
+              {result.results.map((r) => (
                 <tr key={r.file}>
                   <td style={{ width: 90 }}><span className={`status ${r.passed ? "pass" : "fail"}`}>{r.passed ? "✓ Pass" : "✗ Fail"}</span></td>
                   <td>{r.file.replace(/_/g, " ").replace(".csv", "")}{r.problems.length > 0 && <div className="muted" style={{ fontSize: 13 }}>{r.problems.slice(0, 2).join("; ")}</div>}</td>

@@ -22,7 +22,7 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal
 
-from glassfolio.extract import extract
+from glassfolio.extract import Progress, extract, quiet
 from glassfolio.llm import ChatModel, ModelError
 from glassfolio.parsing import _DATE_IN_TEXT, parse_date, parse_number
 from glassfolio.understand import FIELDS, Reading
@@ -263,9 +263,11 @@ def _table(doc: dict) -> tuple[bytes, Reading]:
     return out.getvalue().encode(), reading
 
 
-def read_document(raw: bytes, model: ChatModel | None, attempts: int = 2) -> DocumentReading:
+def read_document(raw: bytes, model: ChatModel | None, attempts: int = 2,
+                  progress: Progress = quiet) -> DocumentReading:
+    """progress(stage, step, steps) hears each stage, so a slow read shows what it is doing."""
     try:
-        extracted = extract(raw)
+        extracted = extract(raw, progress)
     except ValueError as exc:
         return DocumentReading(None, b"", "", (str(exc),))
     if len(extracted.text.strip()) < 20:
@@ -275,7 +277,9 @@ def read_document(raw: bytes, model: ChatModel | None, attempts: int = 2) -> Doc
                                ("reading PDFs and images needs a local model; choose one under Settings",))
     warnings = ("only the first pages were read",) if extracted.truncated else ()
     complaints: tuple[str, ...] = ()
-    for _ in range(attempts):
+    for attempt in range(attempts):
+        progress(f"Transcribing with {model.name}" if attempt == 0
+                 else f"Transcribing again with {model.name}: the first reading didn't check out")
         try:
             doc = model.complete_json(SYSTEM, _prompt(extracted.text, complaints), SCHEMA)
         except ModelError as exc:

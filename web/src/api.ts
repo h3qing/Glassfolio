@@ -106,6 +106,12 @@ export interface ChatTurn {
   cards: { card: string; what: string; where: string }[];
 }
 export interface Slice { owner?: string; account_type?: string; broker?: string; account?: string }
+/** Slow work on the local service (reading a file, testing a model); the page follows it. */
+export interface Job {
+  id: string; kind: "read" | "evaluate"; label: string; stage: string;
+  step: number; steps: number; status: "running" | "done" | "failed"; seconds: number;
+}
+export type Finished<T> = Job & { result: T | { error: string } };
 
 export class ApiError extends Error {}
 
@@ -163,7 +169,10 @@ export const api = {
   confirmAction: (action_id: string) => post<{ op_id: string }>("/api/chat/confirm", { action_id }),
   chooseModel: (url: string, name: string | null) => post("/api/assist/model", { url, name }),
   setTouchId: (required: boolean) => post("/api/settings/touch-id", { required }),
-  evaluate: () => post<EvalRun>("/api/assist/eval", {}),
-  readFile: (file: File) => api.upload<Reading>("/api/assist/read", file, {}),
+  evaluate: () => post<{ job: Job }>("/api/assist/eval", {}),
+  readFile: (file: File) => api.upload<{ job: Job }>("/api/assist/read", file, {}),
+  jobs: () => call<Job[]>("/api/jobs"),
+  job: <T>(id: string) => call<Finished<T>>(`/api/jobs/${encodeURIComponent(id)}`),
+  forgetJob: (id: string) => post("/api/jobs/forget", { id }),
   previewReading: (body: Record<string, unknown>) => post<Record<string, any>>("/api/assist/preview", body),
 };

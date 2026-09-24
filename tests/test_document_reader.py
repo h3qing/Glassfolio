@@ -172,3 +172,13 @@ def test_each_row_reports_the_line_it_came_from(lake):
     doc = read_document((DOCS / "statement.pdf").read_bytes(), model)
     sources = dict(doc.sources)
     assert "NVIDIA CORP" in sources["NVDA"] and "$5,200.00" in sources["QQQ"]
+
+
+def test_reading_reports_each_stage(lake):
+    stages = []
+    model = Scripted(mutate({(0, "market_value"): "$1,230.00"}), GOOD)
+    read_document((DOCS / "statement.pdf").read_bytes(), model,
+                  progress=lambda stage, step=0, steps=0: stages.append((stage, step, steps)))
+    assert stages[0] == ("Reading page 1 of 1", 1, 1)
+    assert ("Transcribing with scripted", 0, 0) in stages
+    assert any("again" in s for s, _, _ in stages)  # the retry is visible, not a silent extra minute

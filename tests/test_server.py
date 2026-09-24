@@ -1,5 +1,7 @@
 """Local web server: security guards and API over the golden portfolio."""
 
+import time
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -209,29 +211,45 @@ def test_strict_inputs(client):
 EVALS = GOLDEN.parent.parent / "evals" / "files"
 
 
+def finish(client, started) -> tuple[str, dict]:
+    """Wait for the job a request started: (status, result)."""
+    job = (started if isinstance(started, dict) else started.json())["job"]
+    for _ in range(600):
+        full = client.get(f"/api/jobs/{job['id']}").json()
+        if full["status"] != "running":
+            return full["status"], full["result"]
+        time.sleep(0.05)
+    raise AssertionError("job didn't finish")
+
+
+def read_upload(client, name: str, raw: bytes) -> dict:
+    status, result = finish(client, client.post("/api/assist/read", files={"file": (name, raw)}))
+    assert status == "done", result
+    return result
+
+
 def test_assisted_import_without_a_model_then_recognised(client):
     raw = (EVALS / "fidelity_style_positions.csv").read_bytes()
-    read = client.post("/api/assist/read", files={"file": ("f.csv", raw)}).json()
+    read = read_upload(client, "f.csv", raw)
     assert read["source"] == "heuristic" and read["kind"] == "positions" and read["errors"] == []
     assert read["as_of"] == "2026-10-01" and read["cash_symbols"] == ["SPAXX**"]
     preview = client.post("/api/assist/preview", json={
         "token": read["token"], "account": "Alice Taxable", "broker": "Fidelity", "reading": {}}).json()
     assert {r["symbol"] for r in preview["rows"]} == {"NVDA", "FXAIX", "SPAXX**"}
     assert client.post("/api/import/commit", json={"token": preview["token"]}).status_code == 200
-    again = client.post("/api/assist/read", files={
-        "file": ("g.csv", raw.replace(b"10/01/2026", b"10/31/2026"))}).json()
+    again = read_upload(client, "g.csv", raw.replace(b"10/01/2026", b"10/31/2026"))
     assert again["source"] == "saved" and again["broker"] == "Fidelity" and again["as_of"] == "2026-10-31"
 
 
 def test_assisted_fund_holdings_and_lots(client):
     raw = (EVALS / "vanguard_style_holdings.csv").read_bytes()
-    read = client.post("/api/assist/read", files={"file": ("h.csv", raw)}).json()
+    read = read_upload(client, "h.csv", raw)
     assert read["kind"] == "fund_holdings" and read["fund_ticker"] == "GTOT"
     preview = client.post("/api/assist/preview", json={"token": read["token"], "reading": {}}).json()
     assert preview["count"] == 4 and preview["errors"] == []
     assert client.post("/api/import/commit", json={"token": preview["token"]}).status_code == 200
     lots = (EVALS / "lots_style.csv").read_bytes()
-    read = client.post("/api/assist/read", files={"file": ("l.csv", lots)}).json()
+    read = read_upload(client, "l.csv", lots)
     preview = client.post("/api/assist/preview", json={"token": read["token"], "account": "Alice Taxable",
                                                       "reading": {}}).json()
     assert preview["count"] == 2
@@ -240,7 +258,7 @@ def test_assisted_fund_holdings_and_lots(client):
 
 def test_user_corrections_are_validated(client):
     raw = (EVALS / "plain_positions.csv").read_bytes()
-    read = client.post("/api/assist/read", files={"file": ("p.csv", raw)}).json()
+    read = read_upload(client, "p.csv", raw)
     bad = client.post("/api/assist/preview", json={"token": read["token"], "account": "Alice Taxable",
                                                   "reading": {"columns": {**read["columns"], "shares": "Close"},
                                                               "as_of": "2026-09-18", "edited": True}})
@@ -259,7 +277,7 @@ def test_model_settings_endpoints(client):
 def test_failed_lots_import_saves_no_layout(client):
     before = len(client.get("/api/meta").json()["profiles"])
     lots = b"Symbol,Open Date,Quantity,Cost Basis\nZZZZ,01/02/2024,6,300\n"
-    read = client.post("/api/assist/read", files={"file": ("l.csv", lots)}).json()
+    read = read_upload(client, "l.csv", lots)
     r = client.post("/api/assist/preview", json={"token": read["token"], "account": "Alice Taxable",
                                                  "reading": {"as_of": "2026-09-18"}})
     assert r.status_code == 400 and "unknown securities" in r.json()["error"]
@@ -349,7 +367,7 @@ def test_pdf_statement_is_read_previewed_and_stored_as_the_original(client, monk
     from test_document_reader import GOOD, Scripted
     monkeypatch.setattr(assist_api, "configured_model", lambda: Scripted(GOOD))
     pdf = (DOCS / "statement.pdf").read_bytes()
-    read = client.post("/api/assist/read", files={"file": ("s.pdf", pdf)}).json()
+    read = read_upload(client, "s.pdf", pdf)
     assert read["source"] == "document" and read["document"]["method"] == "pdf-text"
     preview = client.post("/api/assist/preview", json={"token": read["token"], "account": "Alice Roth",
                                                       "reading": {}}).json()
@@ -357,11 +375,33 @@ def test_pdf_statement_is_read_previewed_and_stored_as_the_original(client, monk
     before = len(client.get("/api/meta").json()["profiles"])
     assert client.post("/api/import/commit", json={"token": preview["token"]}).status_code == 200
     assert len(client.get("/api/meta").json()["profiles"]) == before  # no layout remembered for documents
-    again = client.post("/api/assist/read", files={"file": ("s.pdf", pdf)}).json()
+    again = read_upload(client, "s.pdf", pdf)
     dup = client.post("/api/assist/preview", json={"token": again["token"], "account": "Alice Roth", "reading": {}})
     assert "already imported" in str(dup.json())  # the PDF itself is deduplicated
 
 
 def test_pdf_without_a_model_explains(client):
-    r = client.post("/api/assist/read", files={"file": ("s.pdf", (DOCS / "statement.pdf").read_bytes())})
-    assert r.status_code == 422 and "local model" in r.json()["error"]
+    status, result = finish(client, client.post("/api/assist/read", files={
+        "file": ("s.pdf", (DOCS / "statement.pdf").read_bytes())}))
+    assert status == "failed" and "local model" in result["error"]
+
+
+def test_reading_is_a_job_you_can_come_back_to(client):
+    raw = (EVALS / "plain_positions.csv").read_bytes()
+    started = client.post("/api/assist/read", files={"file": ("my positions.csv", raw)}).json()["job"]
+    assert started["kind"] == "read" and started["label"] == "my positions.csv"
+    status, result = finish(client, {"job": started})
+    listed = client.get("/api/jobs").json()
+    assert status == "done" and result["kind"] == "positions" and "token" in result
+    assert listed[0]["id"] == started["id"] and "result" not in listed[0]
+    assert client.post("/api/jobs/forget", json={"id": started["id"]}).status_code == 200
+    assert started["id"] not in {j["id"] for j in client.get("/api/jobs").json()}
+    assert client.get(f"/api/jobs/{started['id']}").status_code == 400
+
+
+def test_model_test_is_a_job_that_counts_files(client):
+    from glassfolio.model_eval import planned
+    status, result = finish(client, client.post("/api/assist/eval", json={}))
+    job = client.get("/api/jobs").json()[0]
+    assert status == "done" and result["passed"] == result["total"] == planned(None)
+    assert job["kind"] == "evaluate" and job["step"] == job["steps"] == planned(None)

@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { api, type FileKind, type Meta, type ModelInfo, type Reading } from "../api";
+import { useEffect, useRef, useState } from "react";
+import { api, type FileKind, type Job, type Meta, type ModelInfo, type Reading } from "../api";
 import { Amount, fmtPct } from "../format";
 import { Icon } from "../icons";
+import { JobProgress } from "../jobs";
 import { Segmented } from "../Segmented";
 
 const KIND_LABEL: Record<FileKind, string> = { positions: "Positions", lots: "Lot details", fund_holdings: "Fund holdings" };
@@ -21,16 +22,26 @@ const SOURCE: Record<Reading["source"], string> = {
   user: "Your corrections",
 };
 
-function DropZone({ onFile, busy }: { onFile: (f: File) => void; busy: string | null }) {
+function DropZone({ onFile, job }: { onFile: (f: File) => void; job?: Job }) {
   const [over, setOver] = useState(false);
+  if (job?.status === "running") {
+    const ignore = (e: React.DragEvent) => e.preventDefault();  // a second file mustn't open in the browser
+    return (
+      <div className="drop big" onDragOver={ignore} onDrop={ignore}>
+        <Icon name="sparkle" size={26} />
+        <JobProgress job={job} title={`Reading ${job.label}`} stage={job.stage}
+          note="You can leave this page; the reading continues on this Mac." />
+      </div>
+    );
+  }
   return (
     <label className={`drop big${over ? " over" : ""}`}
       onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
       onDrop={(e) => { e.preventDefault(); setOver(false); const f = e.dataTransfer.files[0]; if (f) onFile(f); }}>
       <input type="file" accept=".csv,text/csv,text/plain,.pdf,application/pdf,image/*,.heic" hidden onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
       <Icon name="sparkle" size={26} />
-      <strong>{busy ?? "Drop any export here"}</strong>
-      <span className="muted">{busy ? "The file stays on this Mac." : "A CSV, a PDF statement or a screenshot: positions, lot details or a fund's holdings."}</span>
+      <strong>Drop any export here</strong>
+      <span className="muted">A CSV, a PDF statement or a screenshot: positions, lot details or a fund's holdings.</span>
     </label>
   );
 }
@@ -156,34 +167,45 @@ function PreviewTable({ p }: { p: Record<string, any> }) {
     </>);
 }
 
-export default function ImportView({ meta, onDone, onSettings }: { meta: Meta; asOf: string; onDone: () => void; onSettings: () => void }) {
+export default function ImportView({ meta, onDone, onSettings, job, onJob, onForget }: {
+  meta: Meta; asOf: string; onDone: () => void; onSettings: () => void;
+  job?: Job; onJob: (job: Job) => void; onForget: (id: string) => void;
+}) {
   const [model, setModel] = useState<ModelInfo | null>(null);
   const [reading, setReading] = useState<Reading | null>(null);
   const [account, setAccount] = useState(meta.accounts[0]?.nickname ?? "");
   const [preview, setPreview] = useState<Record<string, any> | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  const shown = useRef<string | null>(null);  // the job whose result is on screen
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { api.models().then(setModel).catch(() => undefined); }, []);
   useEffect(() => {
     if (!meta.accounts.some((a) => a.nickname === account)) setAccount(meta.accounts[0]?.nickname ?? "");
   }, [meta.accounts, account]);
-  const fail = (e: Error) => { setError(e.message); setBusy(null); };
+  useEffect(() => {  // a finished reading shows up here, even if you left while it ran
+    if (!job || job.status === "running" || job.id === shown.current) return;
+    shown.current = job.id;
+    api.job<Reading>(job.id).then((j) => {
+      if ("error" in j.result) {
+        setError(j.result.error);
+        onForget(j.id);  // shown once; a retry starts clean
+      } else setReading(j.result);
+    }).catch((e) => setError(e.message));
+  }, [job, onForget]);
+  const fail = (e: Error) => setError(e.message);
 
   const read = (file: File) => {
     setReading(null); setPreview(null); setMessage(null); setError(null);
-    const isDoc = /\.(pdf|png|jpe?g|heic|tiff?|gif)$/i.test(file.name) || /^(image\/|application\/pdf)/.test(file.type);
-    setBusy(isDoc ? `Reading ${file.name} on this Mac, then transcribing with ${model?.name ?? "your local model"}… (up to a minute)`
-      : model?.name ? `Reading ${file.name} with ${model.name}…` : `Reading ${file.name}…`);
-    api.readFile(file).then((r) => { setReading(r); setBusy(null); }).catch(fail);
+    api.readFile(file).then((r) => onJob(r.job)).catch(fail);
   };
   const previewIt = () => reading && api.previewReading({
     token: reading.token, account, broker: reading.broker,
     reading: { ...reading, edited: reading.source === "user" },
   }).then((p) => { setPreview(p); setError(null); }).catch(fail);
   const commit = () => preview && api.commit(preview.token).then(() => {
-    setMessage(`${KIND_LABEL[reading!.kind]} imported${reading!.source === "saved" ? "" : "; this layout will be recognized next time"}. You can delete the file from your disk; an encrypted copy is kept.`);
+    setMessage(`${KIND_LABEL[reading!.kind]} imported${reading!.source === "saved" || reading!.source === "document" ? "" : "; this layout will be recognized next time"}. You can delete the file from your disk; an encrypted copy is kept.`);
     setReading(null); setPreview(null); onDone();
+    if (shown.current) onForget(shown.current);  // imported: coming back shows an empty drop zone
   }).catch(fail);
 
   return (
@@ -195,7 +217,7 @@ export default function ImportView({ meta, onDone, onSettings }: { meta: Meta; a
             : <>No local model chosen: built-in rules will read files.</>}
           <button className="btn" style={{ marginLeft: "auto", minHeight: 28, padding: "3px 12px" }} onClick={onSettings}>Model settings</button>
         </p>
-        <DropZone onFile={read} busy={busy} />
+        <DropZone onFile={read} job={job} />
         {message && <p className="status pass" style={{ margin: "12px 6px 0" }}>✓ {message}</p>}
         {error && <p className="error" style={{ margin: "12px 6px 0" }}>{error}</p>}
         {!meta.accounts.length && <p className="status warn" style={{ margin: "12px 6px 0" }}>! Add a person and an account first (Accounts page).</p>}

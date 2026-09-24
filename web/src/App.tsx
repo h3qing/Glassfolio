@@ -13,6 +13,7 @@ import SettingsView from "./views/Settings";
 import ChatPanel from "./views/Chat";
 import TaxesView from "./views/Taxes";
 import { Segmented } from "./Segmented";
+import { JobMark, useJobs } from "./jobs";
 
 const VIEWS = [
   { id: "exposure", label: "What you own", icon: "own" },
@@ -61,6 +62,16 @@ export default function App() {
   const [basis, setBasis] = useState<Basis>("pre");
   const [chatOpen, setChatOpen] = useState(false);
 
+  const jobs = useJobs();
+  const marks: Partial<Record<ViewId, ReturnType<typeof jobs.latest>>> = {
+    import: jobs.latest("read"), settings: jobs.latest("evaluate"),
+  };
+  const here = marks[view];
+  const { seen } = jobs;
+  useEffect(() => {  // a result you are looking at needs no dot
+    if (here && here.status !== "running") seen(here.id);
+  }, [here, seen]);
+
   const [questions, setQuestions] = useState(0);
   const reload = useCallback(() => {
     api.meta().then((m) => { setMeta(m); setAsOf((d) => d || m.default_as_of); setError(null); })
@@ -85,6 +96,7 @@ export default function App() {
               <Icon name={v.icon} />
               {v.label}
               {v.id === "inbox" && questions > 0 && <span className="badge" aria-label={`${questions} open`}>{questions}</span>}
+              <JobMark job={marks[v.id]} unseen={jobs.unseen.has(marks[v.id]?.id ?? "")} />
             </button>
           ))}
         </nav>
@@ -131,8 +143,9 @@ export default function App() {
         {view === "inbox" && <InboxView onChange={reload} />}
         {meta && asOf && view === "taxes" && <TaxesView asOf={asOf} slice={slice} />}
         {meta && view === "accounts" && <AccountsView meta={meta} onChange={reload} />}
-        {meta && view === "import" && <ImportView meta={meta} asOf={asOf} onDone={reload} onSettings={() => setView("settings")} />}
-        {view === "settings" && <SettingsView />}
+        {meta && view === "import" && <ImportView meta={meta} asOf={asOf} onDone={reload} onSettings={() => setView("settings")}
+          job={marks.import} onJob={jobs.track} onForget={jobs.forget} />}
+        {view === "settings" && <SettingsView job={marks.settings} onJob={jobs.track} />}
         {meta && view === "checks" && <ChecksView meta={meta} asOf={asOf} />}
         {view === "activity" && <ActivityView />}
       </div>

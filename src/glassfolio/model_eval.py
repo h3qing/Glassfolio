@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import Callable
 
 from glassfolio.llm import ChatModel, ModelError
 from glassfolio.paths import resource_root
@@ -44,10 +45,26 @@ def check_reading(reading: Reading | None, expected: dict) -> tuple[str, ...]:
     return tuple(problems)
 
 
-def run_eval(model: ChatModel | None, directory: Path = EVALS) -> tuple[EvalResult, ...]:
-    expected = json.loads((directory / "expected.json").read_text())
+def _expected(directory: Path) -> dict:
+    return json.loads((directory / "expected.json").read_text())
+
+
+def planned(model: ChatModel | None) -> int:
+    """How many files a test reads: the CSVs, plus the PDFs and images when there's a model."""
+    return len(_expected(EVALS)) + (len(_expected(EVALS / "documents")) if model is not None else 0)
+
+
+def _nobody(name: str) -> None:
+    pass
+
+
+def run_eval(model: ChatModel | None, directory: Path = EVALS,
+             on_file: Callable[[str], None] = _nobody) -> tuple[EvalResult, ...]:
+    """on_file(name) hears each file as it starts."""
+    expected = _expected(directory)
     results = []
     for name, want in sorted(expected.items()):
+        on_file(name)
         raw = (directory / "files" / name).read_bytes()
         started = time.monotonic()
         try:
@@ -96,12 +113,14 @@ def check_document(doc, expected: dict) -> tuple[str, ...]:
     return tuple(problems)
 
 
-def run_document_eval(model: ChatModel | None, directory: Path = EVALS / "documents") -> tuple[EvalResult, ...]:
+def run_document_eval(model: ChatModel | None, directory: Path = EVALS / "documents",
+                      on_file: Callable[[str], None] = _nobody) -> tuple[EvalResult, ...]:
     from glassfolio.document_reader import read_document
 
-    expected = json.loads((directory / "expected.json").read_text())
+    expected = _expected(directory)
     results = []
     for name, want in sorted(expected.items()):
+        on_file(name)
         started = time.monotonic()
         problems = check_document(read_document((directory / name).read_bytes(), model), want)
         results.append(EvalResult(name, not problems, problems, round(time.monotonic() - started, 1)))

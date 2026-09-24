@@ -398,3 +398,31 @@ Owner feedback: many brokers offer no CSV. Everything stays on this Mac.
   a fact sheet. qwen3.6:27b: 4/4, about 35 s each.
 - **Packaging** adds pdfplumber, pypdfium2 and the pyobjc Vision/Quartz bindings:
   the app is 90 MB, the DMG 68 MB.
+
+## Slow work runs as jobs (owner feedback)
+
+- **Why:** reading a PDF with a local model takes about half a minute, and a model
+  test several minutes. The owner switched pages while waiting and came back to an
+  empty page, because the request and its result lived in the page.
+- **Jobs** (`server/jobs.py`): `POST /api/assist/read` and `/api/assist/eval` now
+  start a job in a worker thread and return at once. The page polls `GET /api/jobs`
+  every second while one runs, fetches the result from `GET /api/jobs/{id}` when
+  it's done, and forgets a reading once it's imported (`POST /api/jobs/forget`).
+  - Jobs live in memory only: they survive switching pages and reloading, not a
+    restart. One of each kind runs at a time, and starting one drops the finished
+    ones of its kind, so an old reading or error can't resurface. A running job
+    can't be forgotten; forgetting a reading also drops its upload from memory.
+  - A job that runs past its limit (15 minutes for a reading, 60 for a model test)
+    is shown as failed and stops blocking its kind: a stalled model server or PDF
+    parser can't lock Import until a restart.
+  - The worker thread never touches the lake: a CSV's saved-layout lookup runs in
+    the request, and only the model call runs in the job.
+  - `settings.json` is changed under a lock and replaced whole, since a model test
+    now records its score from the worker thread.
+  - Stages are real, not simulated: the page being read ("Reading page 2 of 5"),
+    transcribing (and whether it's the retry), or the test file being read ("File
+    3 of 10"). The bar is measured when a count is known and sweeps otherwise.
+  - Unexpected errors in a job show only their type, since the message could quote
+    the document.
+- **UI:** a ring next to Import or Settings in the sidebar while its job runs; a dot
+  when it finished while you were on another page.
