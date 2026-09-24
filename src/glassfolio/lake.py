@@ -7,6 +7,7 @@ with the op_id so the log and the snapshot history stay linked.
 
 import json
 import os
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -32,9 +33,30 @@ ACTORS = ("user", "scheduler", "model")
 T = TypeVar("T")
 
 
-@dataclass(frozen=True)
 class Lake:
-    con: duckdb.DuckDBPyConnection
+    """The open lake, safe to use from several threads.
+
+    DuckDB keeps a connection's pending result and transaction on the connection
+    object, so threads must not share one. `con` is the opening thread's connection
+    there and a cursor of it in any other thread. Cursors share the attached,
+    encrypted catalog; closing the opening thread's connection closes them too.
+    """
+
+    def __init__(self, con: duckdb.DuckDBPyConnection):
+        self._root = con
+        self._local = threading.local()
+        self._local.con = con
+        # One write at a time, so each op's snapshot_before is the snapshot its commit follows.
+        self.write_lock = threading.RLock()
+
+    @property
+    def con(self) -> duckdb.DuckDBPyConnection:
+        con = getattr(self._local, "con", None)
+        if con is None:
+            con = self._root.cursor()
+            con.execute(f"USE {CATALOG}")  # a cursor starts in DuckDB's in-memory catalog
+            self._local.con = con
+        return con
 
 
 @dataclass(frozen=True)
@@ -126,26 +148,27 @@ def run_write(
         raise ValueError(f"unknown actor: {meta.actor}")
     op_id = new_id("op")
     con = lake.con
-    before = current_snapshot(lake)
-    con.execute("BEGIN")
-    try:
-        result, counts = work(con)
-        con.execute(
-            "INSERT INTO ops_log VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            [op_id, utc_now(), meta.actor, meta.tool, json.dumps(dict(meta.params)),
-             meta.description, counts.inserted, counts.updated, counts.deleted, before],
-        )
-        con.execute(
-            f"CALL {CATALOG}.set_commit_message(?, ?, extra_info => ?)",
-            [meta.actor, meta.tool, op_id],
-        )
-        con.execute("COMMIT")
-    except BaseException:
+    with lake.write_lock:
+        before = current_snapshot(lake)
+        con.execute("BEGIN")
         try:
-            con.execute("ROLLBACK")
-        except duckdb.Error:
-            pass  # e.g. COMMIT itself failed; keep the original error
-        raise
+            result, counts = work(con)
+            con.execute(
+                "INSERT INTO ops_log VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [op_id, utc_now(), meta.actor, meta.tool, json.dumps(dict(meta.params)),
+                 meta.description, counts.inserted, counts.updated, counts.deleted, before],
+            )
+            con.execute(
+                f"CALL {CATALOG}.set_commit_message(?, ?, extra_info => ?)",
+                [meta.actor, meta.tool, op_id],
+            )
+            con.execute("COMMIT")
+        except BaseException:
+            try:
+                con.execute("ROLLBACK")
+            except duckdb.Error:
+                pass  # e.g. COMMIT itself failed; keep the original error
+            raise
     return result, op_id
 
 

@@ -426,3 +426,39 @@ Owner feedback: many brokers offer no CSV. Everything stays on this Mac.
     the document.
 - **UI:** a ring next to Import or Settings in the sidebar while its job runs; a dot
   when it finished while you were on another page.
+
+## One DuckDB connection per thread (review finding)
+
+- **Why:** DuckDB keeps a connection's pending result and its open transaction on the
+  connection object. The chat assistant's read tools and a confirmed chat write ran
+  in Starlette's thread pool on the same `lake.con` the request handlers use. A review
+  saw two threads receive each other's results (18 of 6,000 queries, DuckDB 1.5.5).
+  Writes were worse: two threads on one connection share one transaction, and in a
+  test only 15 of 30 concurrent writes reached ops_log.
+- **Fix** (`lake.py`): `Lake.con` is per thread. The thread that opened the lake
+  keeps its connection. Any other thread gets its own cursor of it the first time it
+  asks, and keeps it.
+  - Chosen over an explicit `lake.for_thread()` at each call site because it covers
+    every thread boundary: the chat endpoints, the MCP server's `asyncio.to_thread`,
+    and any future job. The import job that reached the lake from its worker thread
+    showed that remembering at each call site slips.
+  - A cursor starts in DuckDB's in-memory catalog, so it runs `USE lake`. The rest
+    is shared by the database instance: the encrypted DuckLake attach (no key per
+    cursor), the loaded extension, and the temp-file encryption and temp directory
+    settings.
+  - Transactions, temp tables and pending results are per cursor. `run_write`,
+    `set_commit_message` (it tags the cursor's own commit), time travel and
+    `restore` (its `_restore` staging table is per cursor) work unchanged.
+  - Closing the opening thread's connection closes every cursor, so
+    `lake.con.close()` from that thread still releases the catalog. A cursor is
+    freed when its thread exits.
+- **Writes are serialized** (`Lake.write_lock`): with separate cursors, two writes
+  can run at once and DuckLake commits both. But `snapshot_before` is read before
+  the transaction starts: in a probe, 3 of 30 concurrent ops recorded a snapshot
+  that another op had already committed past, so restoring one would silently undo
+  the other too. `run_write` holds the lock from reading `snapshot_before` through
+  COMMIT, so each op's `snapshot_after` is exactly `snapshot_before + 1`. A write on
+  the event loop may wait for a worker's write; writes are short.
+- **Tests:** two threads each run 1,000 lake queries and must only get their own
+  rows, and two threads each write 15 times and every op's snapshots must be
+  exact. Both failed before the fix, and the second one also fails without the lock.

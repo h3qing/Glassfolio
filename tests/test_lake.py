@@ -1,4 +1,5 @@
 import json
+import threading
 import duckdb
 import pytest
 
@@ -68,3 +69,54 @@ def test_restore_rolls_back_an_import(golden, tmp_path):
     (restored,) = company_exposure(lake, D, "NVDA")
     assert restored.total == pytest.approx(before.total)
     assert any(o.op_id == restore_op and o.tool == "restore" for o in list_ops(lake))
+
+
+def _in_two_threads(task, args) -> None:
+    start = threading.Barrier(len(args))
+
+    def run(arg):
+        start.wait()
+        task(arg)
+
+    threads = [threading.Thread(target=run, args=(a,)) for a in args]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+
+def test_threads_never_get_each_others_rows(lake):
+    """DuckDB keeps a pending result on the connection, so a shared one mixes them up."""
+    add_owner(lake, "alice")
+    add_owner(lake, "bob")
+    wrong = []
+
+    def ask(name):
+        for _ in range(1000):
+            try:
+                row = lake.con.execute("SELECT nickname FROM owners WHERE nickname = ?", [name]).fetchone()
+            except duckdb.Error as exc:
+                row = type(exc).__name__
+            if row != (name,):
+                wrong.append((name, row))
+
+    _in_two_threads(ask, ("alice", "bob"))
+    assert wrong == []
+
+
+def test_concurrent_writes_keep_ops_log_snapshots_exact(lake):
+    """Each op's snapshot_before must be the snapshot its commit follows, or restore undoes too much."""
+    failed = []
+
+    def write(prefix):
+        for i in range(15):
+            try:
+                add_owner(lake, f"{prefix}{i}")
+            except duckdb.Error as exc:
+                failed.append(type(exc).__name__)
+
+    _in_two_threads(write, ("a", "b"))
+    ops = list_ops(lake, limit=100)
+    assert failed == []
+    assert len(ops) == 30
+    assert all(o.snapshot_after == o.snapshot_before + 1 for o in ops)
